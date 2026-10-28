@@ -63,6 +63,10 @@ export async function closeTab(api: TabsApi, target: ActionTarget): Promise<Acti
   return attempt(() => api.remove(target.tabId));
 }
 
+/** Targets Chrome actually slept; refused tabs keep their mappings. */
+export const sleptTabIds = (targets: ActionTarget[], result: { failures: { tabId: number }[] }): number[] =>
+  targets.filter(t => !result.failures.some(f => f.tabId === t.tabId)).map(t => t.tabId);
+
 /** Sleeps every tab in a shared-process group; one refusal does not stop the others. */
 export async function sleepGroup(api: TabsApi, targets: ActionTarget[]) {
   const failures: { tabId: number; title: string; error: string }[] = [];

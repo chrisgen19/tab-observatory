@@ -4,10 +4,10 @@ import { PORT_NAME, type Command } from '../shared/protocol.ts';
 import { disconnectHost, onSnapshot, poll } from './host-connection.ts';
 import { detachAll, handleDebuggerDetach, handleDebuggerEvent, rejectPendingTraces, scanTab } from './tab-scanner.ts';
 import { createScanQueue } from './scan-queue.ts';
-import { isScannable, staleTabIds } from './scan-triggers.ts';
+import { isScannable, mappingAfterUpdate, markSeenPids, staleTabIds } from './scan-triggers.ts';
 import { createDashboardHub } from './dashboard-port.ts';
 import { buildState } from './state.ts';
-import { closeTab, createTabsApi, focusTab, sleepGroup, sleepTab, type ActionResult } from './tab-actions.ts';
+import { closeTab, createTabsApi, focusTab, sleepGroup, sleepTab, sleptTabIds, type ActionResult } from './tab-actions.ts';
 
 const FULL_REFRESH = 'full-refresh';
 const tabsApi = createTabsApi();
@@ -24,7 +24,8 @@ const queue = createScanQueue({
 });
 
 const hub = createDashboardHub({
-  buildState: () => buildState(queue.busy()),
+  // Wait for stored settings and the running flag, so a restarted worker never pushes defaults.
+  buildState: () => ready.catch(() => {}).then(() => buildState(queue.busy())),
   handle: async command => {
     await ready;
     try { return await handle(command); } finally { hub.notify(); }
@@ -52,6 +53,7 @@ chrome.runtime.onConnect.addListener(port => { if (port.name === PORT_NAME) hub.
 
 onSnapshot(async () => {
   if (!store.running || !store.snapshot) return;
+  markSeenPids(store.mappings, store.snapshot.processes);
   const tabs = await chrome.tabs.query({});
   queue.enqueue(staleTabIds(tabs, store.mappings, store.snapshot.processes));
   hub.notify();
@@ -70,7 +72,8 @@ async function start() {
   store.generation++;
   await chrome.storage.session.set({ running: true });
   poll();
-  timer = setInterval(poll, 3000);
+  // Push every tick too, so a companion error, disconnect or hang reaches an idle dashboard.
+  timer = setInterval(() => { poll(); hub.notify(); }, 3000);
   await scheduleFullRefresh();
   await enqueueAll();
 }
@@ -114,7 +117,7 @@ async function handle(command: Command): Promise<unknown> {
       return;
     case 'sleepGroup': {
       const result = await sleepGroup(tabsApi, command.targets);
-      for (const target of command.targets) delete store.mappings[target.tabId];
+      for (const tabId of sleptTabIds(command.targets, result)) delete store.mappings[tabId];
       return result;
     }
     case 'saveSettings': return saveSettings(command.settings);
@@ -122,7 +125,8 @@ async function handle(command: Command): Promise<unknown> {
 }
 
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-  if (change.url || change.status === 'loading' || change.discarded) delete store.mappings[tabId];
+  const mapping = mappingAfterUpdate(store.mappings[tabId], change);
+  if (mapping) store.mappings[tabId] = mapping; else delete store.mappings[tabId];
   if (change.discarded) queue.remove(tabId);
   const settled = change.status === 'complete' || change.discarded === false;
   if (store.running && settled && !store.mappings[tabId] && isScannable(tab)) queue.enqueue([tabId]);
@@ -149,4 +153,5 @@ const ready = (async () => {
   store.settings = parseSettings(stored.settings);
   const session = await chrome.storage.session.get('running');
   if (session.running) await start();
+  hub.notify();
 })();

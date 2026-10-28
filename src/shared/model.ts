@@ -6,6 +6,8 @@ export type ProcessSample = {
 export type Mapping = {
   at: number; url: string; pids: number[]; jsHeapBytes: number | null;
   frameCount?: number; mappedFrameCount?: number; error?: string;
+  /** Mapped PIDs a companion sample has reported since the mapping was made. */
+  seenPids?: number[];
 };
 
 export type TraceEvent = { name: string; pid?: number; args?: { data?: any } };

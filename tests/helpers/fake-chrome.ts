@@ -23,11 +23,18 @@ const defaultSnapshot = () => ({
 });
 
 /** Assigns a fake `chrome` global and returns handles the tests drive it through. */
-export function installFakeChrome(options: { tabs: FakeTab[]; sendCommand: FakeSendCommand; snapshot?: () => object }): FakeChrome {
+export function installFakeChrome(options: {
+  tabs: FakeTab[]; sendCommand: FakeSendCommand; snapshot?: () => object;
+  /** chrome.storage.local contents and the session running flag, as after a service worker restart. */
+  local?: Record<string, unknown>; sessionRunning?: boolean;
+  /** Delay before storage reads resolve, like real chrome.storage. */
+  storageDelayMs?: number;
+}): FakeChrome {
   const { tabs, sendCommand, snapshot = defaultSnapshot } = options;
   const attached = new Set<number>();
   let messageHandler: Listener | undefined;
-  let storedRunning = false;
+  let storedRunning = options.sessionRunning ?? false;
+  const settle = () => new Promise(resolve => setTimeout(resolve, options.storageDelayMs ?? 0));
   const chrome = {
     action: { onClicked: event(), setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
     runtime: {
@@ -48,7 +55,7 @@ export function installFakeChrome(options: { tabs: FakeTab[]; sendCommand: FakeS
     windows: { update: async () => {} },
     alarms: { create: async () => {}, clear: async () => {}, onAlarm: event() },
     storage: {
-      local: { get: async () => ({}), set: async () => {} },
+      local: { get: async () => { await settle(); return options.local ?? {}; }, set: async () => {} },
       session: {
         get: async () => ({ running: storedRunning }),
         set: async (value: { running: boolean }) => { storedRunning = value.running; },

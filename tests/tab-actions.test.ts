@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { closeTab, focusTab, sleepGroup, sleepTab, type TabsApi } from '../src/background/tab-actions.ts';
+import { closeTab, focusTab, sleepGroup, sleepTab, sleptTabIds, type TabsApi } from '../src/background/tab-actions.ts';
 
 type Tab = { id: number; url: string; title?: string; windowId?: number };
 
@@ -60,4 +60,10 @@ test('sleepGroup reports partial success', async () => {
   const r = await sleepGroup(api, [{ tabId: 2, url: u2 }, { tabId: 3, url: u3 }]);
   assert.deepEqual([r.slept, r.total, r.failures.map(f => f.title)], [1, 2, ['Inbox (12) - Gmail']]);
   assert.deepEqual(api.discarded, [3]);
+});
+
+test('sleptTabIds leaves out tabs Chrome refused, so their mappings survive', () => {
+  const targets = [{ tabId: 2, url: 'https://mail.test' }, { tabId: 3, url: 'https://calendar.test' }];
+  const result = { slept: 1, total: 2, failures: [{ tabId: 2, title: 'Inbox', error: 'refused' }] };
+  assert.deepEqual(sleptTabIds(targets, result), [3]);
 });
