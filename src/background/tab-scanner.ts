@@ -1,4 +1,4 @@
-import { framesFromEvents, type FrameInfo, type TabLike, type TraceEvent } from '../shared/model.ts';
+import { FROZEN_TAB, framesFromEvents, type FrameInfo, type TabLike, type TraceEvent } from '../shared/model.ts';
 import { scanDeadline, withTimeout, type ScanDeadline } from '../shared/deadline.ts';
 import { store } from './store.ts';
 
@@ -86,7 +86,9 @@ async function attachTab(scan: Scan) {
 
 /** Enables iframe auto-attach and returns the root frame plus every frame ID seen. */
 async function collectContexts(scan: Scan) {
-  const tree = await scan.command('Page.getFrameTree');
+  const tree = await scan.command('Page.getFrameTree').catch((error: Error) => {
+    throw error.message === 'Page.getFrameTree timed out' ? new Error(FROZEN_TAB) : error;
+  });
   const rootFrame: string = tree.frameTree.frame.id;
   const frameIds = new Set<string>();
   const visit = (node: any) => { frameIds.add(node.frame.id); (node.childFrames || []).forEach(visit); };

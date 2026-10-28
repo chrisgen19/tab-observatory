@@ -1,5 +1,6 @@
 import type { RankedEntry, RankedTab } from '../../shared/ranking.ts';
 import { formatBytes } from '../../shared/format.ts';
+import { FROZEN_TAB } from '../../shared/model.ts';
 
 const matches = (tab: RankedTab, needle: string) =>
   [tab.title, tab.url ?? '', ...tab.pids.map(String)].some(text => text.toLowerCase().includes(needle));
@@ -38,7 +39,7 @@ export function stateTag(tab: RankedTab): string | null {
   switch (tab.state) {
     case 'scanning': return 'Scanning…';
     case 'pending': return 'Not scanned yet';
-    case 'error': return `Mapping failed: ${tab.status}`;
+    case 'error': return tab.status === FROZEN_TAB ? FROZEN_TAB : `Mapping failed: ${tab.status}`;
     case 'partial': return 'Partial';
     case 'sleeping': return 'Sleeping';
     case 'restricted': return 'Restricted';
