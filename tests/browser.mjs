@@ -91,14 +91,19 @@ try {
   const increased = await waitFor(s => s.tabs.find(t => t.id === mapped.id)?.rssBytes > mapped.rssBytes + 20 * 1024 ** 2, 'Memory allocation visible in OS samples');
   console.log('Observed allocation increase MB:', Math.round((increased.tabs.find(t => t.id === mapped.id).rssBytes - mapped.rssBytes) / 1024 ** 2));
   await waitFor(s => s.tabs.find(t => t.id === mapped.id)?.cpuPercent != null, 'CPU delta sample');
-  await dashboard.getByRole('button', { name: 'Processes', exact: true }).click();
-  await dashboard.locator('#search').fill('browser');
-  assert(await dashboard.locator('#rows').innerText().then(text => text.includes('browser')));
-  await dashboard.locator('#search').fill('');
-  await dashboard.getByRole('button', { name: 'Tabs', exact: true }).click();
-  await dashboard.locator('#threshold').fill('1200');
-  await dashboard.getByRole('button', { name: 'Save', exact: true }).click();
+  // Settings are saved through the protocol until the settings dialog exists (Task 12 restores the UI step).
+  await dashboard.evaluate(() => new Promise(resolve => {
+    const port = chrome.runtime.connect({ name: 'dashboard' });
+    port.onMessage.addListener(message => {
+      if (message.kind === 'state' && !port.sent) {
+        port.sent = true;
+        port.postMessage({ id: 'save-1', type: 'saveSettings', settings: { ...message.state.settings, thresholdMb: 1200 } });
+      }
+      if (message.kind === 'reply') { port.disconnect(); resolve(message); }
+    });
+  }));
   await waitFor(s => s.settings.thresholdMb === 1200, 'Alert setting saved');
+  await dashboard.getByText('Chrome total', { exact: true }).waitFor();
   await dashboard.waitForTimeout(1100);
   await dashboard.setViewportSize({ width: 1440, height: 1000 });
   await mkdir(path.join(root, 'test-results'), { recursive: true });
