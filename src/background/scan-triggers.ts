@@ -1,4 +1,4 @@
-import type { Mapping, ProcessSample, TabLike } from '../shared/model.ts';
+import { FROZEN_TAB, type Mapping, type ProcessSample, type TabLike } from '../shared/model.ts';
 
 export const isScannable = (tab: TabLike): boolean =>
   /^https?:/.test(tab.url || '') && !tab.discarded && !tab.incognito;
@@ -30,6 +30,12 @@ export function mappingAfterUpdate(mapping: Mapping | undefined, change: chrome.
   if (!mapping || change.status === 'loading' || change.discarded) return undefined;
   return change.url ? { ...mapping, url: change.url } : mapping;
 }
+
+/**
+ * Chrome unfreezes a tab when it becomes active, so a frozen-tab failure is retried then.
+ * Other scan errors would fail again, so they keep waiting for navigation or a full refresh.
+ */
+export const rescanOnActivation = (mapping: Mapping | undefined): boolean => mapping?.error === FROZEN_TAB;
 
 /**
  * Scannable tabs whose mapping is missing or no longer trustworthy. Failed scans are

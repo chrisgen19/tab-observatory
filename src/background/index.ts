@@ -4,7 +4,7 @@ import { PORT_NAME, type Command } from '../shared/protocol.ts';
 import { disconnectHost, onSnapshot, poll } from './host-connection.ts';
 import { detachAll, handleDebuggerDetach, handleDebuggerEvent, rejectPendingTraces, scanTab } from './tab-scanner.ts';
 import { createScanQueue } from './scan-queue.ts';
-import { isScannable, mappingAfterUpdate, markSeenPids, staleTabIds } from './scan-triggers.ts';
+import { isScannable, mappingAfterUpdate, markSeenPids, rescanOnActivation, staleTabIds } from './scan-triggers.ts';
 import { createDashboardHub } from './dashboard-port.ts';
 import { buildState } from './state.ts';
 import { closeTab, createTabsApi, focusTab, sleepGroup, sleepTab, sleptTabIds, type ActionResult } from './tab-actions.ts';
@@ -130,6 +130,12 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.discarded) queue.remove(tabId);
   const settled = change.status === 'complete' || change.discarded === false;
   if (store.running && settled && !store.mappings[tabId] && isScannable(tab)) queue.enqueue([tabId]);
+  hub.notify();
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  if (!rescanOnActivation(store.mappings[tabId])) return;
+  delete store.mappings[tabId];
+  if (store.running) queue.enqueue([tabId]);
   hub.notify();
 });
 chrome.tabs.onRemoved.addListener(tabId => {
