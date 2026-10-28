@@ -1,9 +1,10 @@
 import type { Mapping, ProcessSample } from '../shared/model.ts';
 import type { ScanProgress } from './scan-queue.ts';
+import type { HistoryPoint } from '../shared/protocol.ts';
 import { DEFAULT_SETTINGS, type Settings } from '../shared/settings.ts';
 
 export type Snapshot = { type: 'snapshot'; at: number; platform: string; warnings: string[]; processes: ProcessSample[] };
-export type HistoryPoint = { at: number; rssBytes: number; cpuPercent: number | null };
+export type { HistoryPoint } from '../shared/protocol.ts';
 
 export type Store = {
   running: boolean;

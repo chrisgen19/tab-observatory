@@ -59,7 +59,13 @@ try {
   await dashboard.goto(`chrome-extension://${id}/dashboard.html`);
   const baselineAttached = await worker.evaluate(async () => (await chrome.debugger.getTargets()).filter(t => t.attached).map(t => t.id).sort());
   await dashboard.getByRole('button', { name: 'Start monitoring' }).click();
-  const getState = () => dashboard.evaluate(() => chrome.runtime.sendMessage({ command: 'state' }));
+  // The background pushes a full state as soon as a dashboard port connects.
+  const getState = () => dashboard.evaluate(() => new Promise(resolve => {
+    const port = chrome.runtime.connect({ name: 'dashboard' });
+    port.onMessage.addListener(message => {
+      if (message.kind === 'state') { port.disconnect(); resolve(message.state); }
+    });
+  }));
   async function waitFor(predicate, label, timeout = 30000) {
     const end = Date.now() + timeout;
     let state;

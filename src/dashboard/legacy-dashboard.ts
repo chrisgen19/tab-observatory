@@ -1,9 +1,11 @@
 import './legacy.css';
 import type { OwnedProcess, TabRow, Totals } from '../shared/model.ts';
+import { PORT_NAME, type CommandInput, type PortMessage } from '../shared/protocol.ts';
+import type { Settings } from '../shared/settings.ts';
 
 // Temporary 1:1 port of the original dashboard; replaced by the React UI.
 type State = {
-  running: boolean; scanning: boolean; scanProgress: { current: number; total: number } | null; settings: { thresholdMb: number };
+  running: boolean; scanning: boolean; scanProgress: { current: number; total: number } | null; settings: Settings;
   hostError: string; platform: string | null; at: number | null; warnings: string[];
   total: Totals; peak: number; history: { at: number; rssBytes: number }[];
   tabs: TabRow[]; processes: OwnedProcess[]; extensionId: string;
@@ -17,16 +19,26 @@ let state: State | undefined;
 let view = 'tabs';
 let sortKey: SortKey = 'rssBytes';
 let descending = true;
-let busy = false;
 const bytes = (n: number | null | undefined) => n == null ? '—' : n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB` : `${(n / 1024 ** 2).toFixed(1)} MB`;
 const percent = (n: number | null | undefined) => n == null ? '—' : `${n.toFixed(1)}%`;
 const sortValue = (row: Row) => (row as Partial<Record<SortKey, number | null>>)[sortKey];
 const isTab = (_row: Row): _row is TabRow => view === 'tabs';
 
-async function request(command: string, extra: object = {}): Promise<State> {
-  const result = await chrome.runtime.sendMessage({ command, ...extra });
-  if (result?.error) throw new Error(result.error);
-  return result;
+const port = chrome.runtime.connect({ name: PORT_NAME });
+const pending = new Map<string, { resolve(): void; reject(error: Error): void }>();
+port.onMessage.addListener((message: PortMessage) => {
+  if (message.kind === 'state') { render(message.state); return; }
+  const waiter = pending.get(message.id);
+  pending.delete(message.id);
+  if (message.ok) waiter?.resolve(); else waiter?.reject(new Error(message.error));
+});
+
+function request(command: CommandInput): Promise<void> {
+  const id = crypto.randomUUID();
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    port.postMessage({ ...command, id });
+  });
 }
 
 function cell(text: string, className?: string) {
@@ -122,20 +134,12 @@ function showError(error: unknown) {
   $('error').textContent = (error as Error).message;
 }
 
-async function refresh() {
-  if (busy || document.hidden) return;
-  busy = true;
-  try { render(await request('state')); }
-  catch (error) { showError(error); }
-  finally { busy = false; }
+async function action(command: CommandInput) {
+  try { await request(command); return true; }
+  catch (error) { showError(error); return false; }
 }
-
-async function action(command: string, extra?: object) {
-  try { render(await request(command, extra)); }
-  catch (error) { showError(error); }
-}
-$('toggle').addEventListener('click', () => action(state?.running ? 'stop' : 'start'));
-$('scan').addEventListener('click', () => action('scan'));
+$('toggle').addEventListener('click', () => action({ type: state?.running ? 'stop' : 'start' }));
+$('scan').addEventListener('click', () => action({ type: 'rescan' }));
 $('search').addEventListener('input', renderRows);
 for (const nextView of ['tabs', 'processes']) {
   const id = nextView === 'tabs' ? 'tab-view' : 'process-view';
@@ -162,10 +166,7 @@ $('copy-id').addEventListener('click', async () => {
   catch { $('copy-id').textContent = state!.extensionId; }
 });
 $('save').addEventListener('click', async () => {
-  await action('settings', { thresholdMb: input('threshold').value });
-  $('saved').textContent = state!.settings.thresholdMb === Number(input('threshold').value) ? 'Saved' : '';
+  const saved = await action({ type: 'saveSettings', settings: { ...state!.settings, thresholdMb: Number(input('threshold').value) } });
+  $('saved').textContent = saved ? 'Saved' : '';
   setTimeout(() => { $('saved').textContent = ''; }, 3000);
 });
-document.addEventListener('visibilitychange', refresh);
-void refresh();
-setInterval(refresh, 1000);

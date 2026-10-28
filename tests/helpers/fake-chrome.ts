@@ -65,6 +65,25 @@ export function installFakeChrome(options: { tabs: FakeTab[]; sendCommand: FakeS
   return { chrome, attached, messageHandler: () => messageHandler };
 }
 
+export type FakePort = {
+  name: string; sender: { id: string; url: string }; sent: any[]; disconnected: boolean;
+  onMessage: FakeEvent; onDisconnect: FakeEvent;
+  postMessage(message: unknown): void; disconnect(): void;
+  /** Delivers a message from the dashboard side. */
+  emit(message: unknown): void;
+};
+
+export function createFakePort(url = 'chrome-extension://test-extension/dashboard.html'): FakePort {
+  const port: FakePort = {
+    name: 'dashboard', sender: { id: 'test-extension', url }, sent: [], disconnected: false,
+    onMessage: event(), onDisconnect: event(),
+    postMessage: message => { if (port.disconnected) throw new Error('Attempting to use a disconnected port object'); port.sent.push(message); },
+    disconnect: () => { port.disconnected = true; },
+    emit: message => port.onMessage.emit(message, port),
+  };
+  return port;
+}
+
 export function uninstallFakeChrome(): void {
   delete (globalThis as any).chrome;
 }
