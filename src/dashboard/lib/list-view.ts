@@ -1,0 +1,56 @@
+import type { RankedEntry, RankedTab } from '../../shared/ranking.ts';
+import { formatBytes } from '../../shared/format.ts';
+
+const matches = (tab: RankedTab, needle: string) =>
+  [tab.title, tab.url ?? '', ...tab.pids.map(String)].some(text => text.toLowerCase().includes(needle));
+
+/** Case-insensitive filter on title, URL and PID; a group keeps only its matching members. */
+export function filterEntries(entries: RankedEntry[], needle: string): RankedEntry[] {
+  const query = needle.trim().toLowerCase();
+  if (!query) return entries;
+  return entries.flatMap((entry): RankedEntry[] => {
+    if (entry.kind === 'tab') return matches(entry.tab, query) ? [entry] : [];
+    const tabs = entry.tabs.filter(tab => matches(tab, query));
+    return tabs.length ? [{ ...entry, tabs }] : [];
+  });
+}
+
+const round = (n: number) => Math.round(n * 10) / 10;
+
+/** Bar segments as percentages of the largest freed amount; own + shared never exceeds 100. */
+export function barWidths(tab: RankedTab, maxFrees: number): { own: number; shared: number } {
+  if (maxFrees <= 0) return { own: 0, shared: 0 };
+  const own = Math.min(100, ((tab.freesBytes ?? 0) / maxFrees) * 100);
+  const shared = Math.min(100 - own, (tab.sharedBytes / maxFrees) * 100);
+  return { own: round(own), shared: round(shared) };
+}
+
+export const groupLabel = (count: number): string => count === 2 ? 'Sleep both' : `Sleep all ${count}`;
+
+export function canAct(tab: RankedTab, extensionId: string): { focus: boolean; sleep: boolean; close: boolean } {
+  if (tab.url?.startsWith(`chrome-extension://${extensionId}/`)) return { focus: false, sleep: false, close: false };
+  return { focus: true, sleep: tab.state !== 'sleeping', close: true };
+}
+
+export function stateTag(tab: RankedTab): string | null {
+  switch (tab.state) {
+    case 'scanning': return 'Scanning…';
+    case 'pending': return 'Not scanned yet';
+    case 'error': return `Mapping failed: ${tab.status}`;
+    case 'partial': return 'Partial';
+    case 'sleeping': return 'Sleeping';
+    case 'restricted': return 'Restricted';
+    default: return null;
+  }
+}
+
+export const freesLabel = (tab: RankedTab): string =>
+  tab.freesBytes == null ? '' : `${tab.estimated ? '≈ ' : ''}${formatBytes(tab.freesBytes)}`;
+
+export type GroupSleepResult = { slept: number; total: number; failures: { tabId: number; title: string; error: string }[] };
+
+/** Null when every tab slept; otherwise names each tab Chrome refused and why. */
+export const groupResultMessage = (result: GroupSleepResult): string | null =>
+  result.failures.length
+    ? `Slept ${result.slept} of ${result.total}. ${result.failures.map(f => `${f.title || 'A tab'}: ${f.error}`).join('; ')}`
+    : null;

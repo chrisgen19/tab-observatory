@@ -8,6 +8,7 @@ import { StatsStrip } from './components/stats-strip.tsx';
 import { SetupPanel } from './components/setup-panel.tsx';
 import { StatusNotice } from './components/status-notice.tsx';
 import { AboutNumbers } from './components/about-numbers.tsx';
+import { TabList } from './components/tab-list.tsx';
 
 export function App() {
   const { state, connected, send } = useDashboardPort();
@@ -33,9 +34,11 @@ export function App() {
       {state && host.kind === 'missing' && <SetupPanel extensionId={state.extensionId} />}
       <StatusNotice host={host} warnings={state?.warnings ?? []} actionError={actionError} />
       {state && <StatsStrip state={state} />}
-      <section className="rounded-xl border border-line bg-paper px-4 py-10 text-center text-sm text-muted">
-        {state?.running ? 'Tab list arrives in the next step.' : 'Start monitoring to rank your tabs by the memory closing them would free.'}
-      </section>
+      {state?.running ? <TabList state={state} send={send} /> : (
+        <section className="rounded-xl border border-line bg-paper px-4 py-10 text-center text-sm text-muted">
+          Start monitoring to rank your tabs by the memory closing them would free.
+        </section>
+      )}
       <AboutNumbers />
     </main>
   );
