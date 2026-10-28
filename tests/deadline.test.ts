@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scanDeadline, withTimeout } from '../extension/deadline.js';
+import { scanDeadline, withTimeout } from '../src/shared/deadline.ts';
 
 test('an unresponsive browser command expires and prevents later commands', async () => {
   const deadline = scanDeadline(() => true, 1000, 20);
@@ -11,9 +11,11 @@ test('an unresponsive browser command expires and prevents later commands', asyn
 });
 
 test('whole-tab budget limits multiple individually responsive commands', async () => {
-  const deadline = scanDeadline(() => true, 30, 1000);
-  await deadline.run(() => new Promise(resolve => setTimeout(resolve, 15)), 'First');
-  await assert.rejects(deadline.run(() => new Promise(resolve => setTimeout(resolve, 40)), 'Second'), /timed out/);
+  // Margins sit well above timer granularity (about 15.6 ms on Windows), so the first command
+  // always fits the budget and only the second can exceed it.
+  const deadline = scanDeadline(() => true, 300, 1000);
+  await deadline.run(() => new Promise(resolve => setTimeout(resolve, 100)), 'First');
+  await assert.rejects(deadline.run(() => new Promise(resolve => setTimeout(resolve, 500)), 'Second'), /timed out/);
 });
 
 test('stopping monitoring prevents queued work; cleanup is bounded', async () => {

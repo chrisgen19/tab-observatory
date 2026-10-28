@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Tab Observatory",
+  "description": "Inspect Chrome process memory, CPU and tab associations with a local companion.",
+  "version": "0.2.0",
+  "minimum_chrome_version": "125",
+  "permissions": [
+    "tabs",
+    "debugger",
+    "nativeMessaging",
+    "storage",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Tab Observatory"
+  }
+}

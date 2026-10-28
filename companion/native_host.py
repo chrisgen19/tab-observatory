@@ -9,6 +9,8 @@ import psutil
 
 MAX_MESSAGE = 65536
 HOST_NAME = "com.tab_observatory.monitor"
+# USS is the expensive reading; reuse it for this many seconds per process.
+USS_INTERVAL = 15
 
 
 def read_exact(stream, count):
@@ -69,6 +71,18 @@ class Sampler:
         self.previous = {}
         self.last_sample = None
         self.cached = None
+        self.uss = {}
+
+    def read_uss(self, process, key, now):
+        cached = self.uss.get(key)
+        if cached and now - cached[1] < USS_INTERVAL:
+            return cached[0]
+        try:
+            value = getattr(process.memory_full_info(), "uss", None)
+        except (psutil.AccessDenied, psutil.NoSuchProcess, NotImplementedError):
+            value = None
+        self.uss[key] = (value, now)
+        return value
 
     def snapshot(self):
         now = time.monotonic()
@@ -77,7 +91,7 @@ class Sampler:
             return self.cached
         if not self.browser.is_running():
             raise RuntimeError("Launching browser has exited")
-        processes, warnings, previous = [], [], {}
+        processes, warnings, previous, uss = [], [], {}, {}
         for process in [self.browser, *self.browser.children(recursive=True)]:
             try:
                 if not is_chrome(process):
@@ -94,10 +108,8 @@ class Sampler:
                     old = self.previous.get(key)
                     cpu = max(0, (cpu_time - old[0]) / (now - old[1]) * 100) if old else None
                     previous[key] = (cpu_time, now)
-                try:
-                    private = getattr(process.memory_full_info(), "uss", None)
-                except (psutil.AccessDenied, psutil.NoSuchProcess, NotImplementedError):
-                    private = None
+                private = self.read_uss(process, key, now)
+                uss[key] = self.uss[key]
                 processes.append({
                     "pid": pid, "createdAt": created, "kind": kind,
                     "rssBytes": memory.rss, "privateBytes": private,
@@ -110,6 +122,7 @@ class Sampler:
         if any(p["privateBytes"] is None for p in processes):
             warnings.append("Private resident memory is unavailable for some processes")
         self.previous = previous
+        self.uss = uss  # drops entries for processes that have gone
         self.last_sample = now
         self.cached = {
             "type": "snapshot", "at": int(time.time() * 1000), "platform": sys.platform,

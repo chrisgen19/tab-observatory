@@ -14,6 +14,21 @@ class Chunked(io.BytesIO):
         return super().read(min(count, 2))
 
 
+def make_browser():
+    browser = Mock(pid=42)
+    browser.is_running.return_value = True
+    browser.children.return_value = []
+    browser.name.return_value = "chrome.exe"
+    browser.cmdline.return_value = []
+    browser.create_time.return_value = 1
+    browser.oneshot.return_value.__enter__ = Mock()
+    browser.oneshot.return_value.__exit__ = Mock(return_value=False)
+    browser.memory_info.return_value = Mock(rss=100)
+    browser.memory_full_info.return_value = Mock(uss=80)
+    browser.cpu_times.return_value = Mock(user=1, system=1)
+    return browser
+
+
 class HostTests(unittest.TestCase):
     def test_fragmented_unicode_roundtrip(self):
         output = io.BytesIO()
@@ -35,18 +50,24 @@ class HostTests(unittest.TestCase):
         outgoing.seek(0)
         self.assertIn("error", read_message(outgoing))
 
+    def test_uss_is_read_at_most_every_15_seconds(self):
+        sampler = Sampler(make_browser())
+        with patch('native_host.time.monotonic', side_effect=[10, 13, 26]):
+            sampler.snapshot(); sampler.snapshot(); sampler.snapshot()
+        self.assertEqual(sampler.browser.memory_full_info.call_count, 2)  # at 10 and 26
+
+    def test_cached_uss_is_reported_and_reread_for_a_recycled_pid(self):
+        browser = make_browser()
+        sampler = Sampler(browser)
+        with patch('native_host.time.monotonic', side_effect=[10, 13, 16]):
+            self.assertEqual(sampler.snapshot()["processes"][0]["privateBytes"], 80)
+            browser.memory_full_info.return_value = Mock(uss=999)
+            self.assertEqual(sampler.snapshot()["processes"][0]["privateBytes"], 80)
+            browser.create_time.return_value = 2
+            self.assertEqual(sampler.snapshot()["processes"][0]["privateBytes"], 999)
+
     def test_cpu_first_sample_and_pid_reuse(self):
-        browser = Mock(pid=42)
-        browser.is_running.return_value = True
-        browser.children.return_value = []
-        browser.name.return_value = "chrome.exe"
-        browser.cmdline.return_value = []
-        browser.create_time.return_value = 1
-        browser.oneshot.return_value.__enter__ = Mock()
-        browser.oneshot.return_value.__exit__ = Mock(return_value=False)
-        browser.memory_info.return_value = Mock(rss=100)
-        browser.memory_full_info.return_value = Mock(uss=80)
-        browser.cpu_times.return_value = Mock(user=1, system=1)
+        browser = make_browser()
         sampler = Sampler(browser)
         with patch('native_host.time.monotonic', side_effect=[10, 13, 16]):
             self.assertIsNone(sampler.snapshot()["processes"][0]["cpuPercent"])

@@ -2,12 +2,15 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Chrome loads the Vite output, so test the current source rather than a stale build.
+execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' });
 const temporary = await mkdtemp(path.join(tmpdir(), 'tab-observatory-test-'));
 const server = createServer((req, res) => {
   res.setHeader('content-type', 'text/html');
@@ -56,7 +59,13 @@ try {
   await dashboard.goto(`chrome-extension://${id}/dashboard.html`);
   const baselineAttached = await worker.evaluate(async () => (await chrome.debugger.getTargets()).filter(t => t.attached).map(t => t.id).sort());
   await dashboard.getByRole('button', { name: 'Start monitoring' }).click();
-  const getState = () => dashboard.evaluate(() => chrome.runtime.sendMessage({ command: 'state' }));
+  // The background pushes a full state as soon as a dashboard port connects.
+  const getState = () => dashboard.evaluate(() => new Promise(resolve => {
+    const port = chrome.runtime.connect({ name: 'dashboard' });
+    port.onMessage.addListener(message => {
+      if (message.kind === 'state') { port.disconnect(); resolve(message.state); }
+    });
+  }));
   async function waitFor(predicate, label, timeout = 30000) {
     const end = Date.now() + timeout;
     let state;
@@ -82,26 +91,49 @@ try {
   const increased = await waitFor(s => s.tabs.find(t => t.id === mapped.id)?.rssBytes > mapped.rssBytes + 20 * 1024 ** 2, 'Memory allocation visible in OS samples');
   console.log('Observed allocation increase MB:', Math.round((increased.tabs.find(t => t.id === mapped.id).rssBytes - mapped.rssBytes) / 1024 ** 2));
   await waitFor(s => s.tabs.find(t => t.id === mapped.id)?.cpuPercent != null, 'CPU delta sample');
+  const rankedTabs = state => state.ranking.entries.flatMap(e => e.kind === 'tab' ? [e.tab] : e.tabs);
+  const group = fullyMapped.ranking.entries.find(e => e.kind === 'group' && e.tabs.some(t => t.id === mapped.id));
+  assert(group, 'Tabs sharing a renderer are ranked as one group');
+  await dashboard.getByText(/^Shared process · /).waitFor();
   await dashboard.getByRole('button', { name: 'Processes', exact: true }).click();
-  await dashboard.locator('#search').fill('browser');
-  assert(await dashboard.locator('#rows').innerText().then(text => text.includes('browser')));
-  await dashboard.locator('#search').fill('');
+  await dashboard.getByRole('searchbox').fill('browser');
+  assert(await dashboard.locator('section[aria-label="Processes"] table').innerText().then(text => text.includes('browser')));
+  await dashboard.getByRole('searchbox').fill('');
   await dashboard.getByRole('button', { name: 'Tabs', exact: true }).click();
-  await dashboard.locator('#threshold').fill('1200');
-  await dashboard.getByRole('button', { name: 'Save', exact: true }).click();
+  await dashboard.getByRole('button', { name: 'Settings' }).click();
+  const settings = dashboard.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('spinbutton').fill('1200');
+  await settings.getByRole('button', { name: 'Save' }).click();
+  await settings.waitFor({ state: 'hidden' });
   await waitFor(s => s.settings.thresholdMb === 1200, 'Alert setting saved');
+  await dashboard.getByText('Chrome total', { exact: true }).waitFor();
   await dashboard.waitForTimeout(1100);
-  await dashboard.setViewportSize({ width: 1440, height: 1000 });
   await mkdir(path.join(root, 'test-results'), { recursive: true });
+  await dashboard.setViewportSize({ width: 1440, height: 1000 });
   await dashboard.screenshot({ path: path.join(root, 'test-results/dashboard.png'), fullPage: true });
+  await dashboard.setViewportSize({ width: 375, height: 900 });
+  await dashboard.screenshot({ path: path.join(root, 'test-results/dashboard-mobile.png'), fullPage: true });
+  assert.equal(await dashboard.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'No horizontal scroll at 375px');
+  await dashboard.setViewportSize({ width: 1440, height: 1000 });
+  // Chrome can replace a tab's ID when it discards it, so find the slept tab by title.
+  await dashboard.getByRole('button', { name: 'Sleep Observatory shared tab' }).click();
+  await waitFor(s => s.tabs.find(t => t.title === 'Observatory shared tab')?.discarded, 'Sleep discards the tab');
+  const slept = await worker.evaluate(() => chrome.tabs.query({ title: 'Observatory shared tab' }));
+  assert.equal(slept.length === 1 && slept[0].discarded, true);
   await testTab.goto(`http://127.0.0.1:${server.address().port}/navigated`);
   const navigated = await getState();
   assert.equal(navigated.tabs.find(t => t.id === mapped.id).rssBytes, null);
+  assert(!['mapped', 'partial'].includes(rankedTabs(navigated).find(t => t.id === mapped.id)?.state), 'Navigation leaves the mapped state');
   await dashboard.getByRole('button', { name: 'Pause monitoring' }).click();
   const paused = await getState();
   assert.equal(paused.running, false);
   assert.equal(paused.processes.length, 0);
-  const afterAttached = await worker.evaluate(async () => (await chrome.debugger.getTargets()).filter(t => t.attached).map(t => t.id));
+  // Playwright attaches to every page it controls, including the replacement target Chrome
+  // creates for a discarded tab; the extension never attaches to discarded tabs.
+  const afterAttached = await worker.evaluate(async () => {
+    const discarded = new Set((await chrome.tabs.query({ discarded: true })).map(tab => tab.id));
+    return (await chrome.debugger.getTargets()).filter(t => t.attached && !discarded.has(t.tabId)).map(t => t.id);
+  });
   assert(afterAttached.every(id => baselineAttached.includes(id)), 'No new attached debugger targets after pause');
   for (const browser of ['chromium', 'google-chrome', 'google-chrome-for-testing']) {
     await rm(path.join(temporary, '.config', browser, 'NativeMessagingHosts'), { recursive: true, force: true });
@@ -113,7 +145,7 @@ try {
   assert.equal(missing.at, null);
   await dashboard.getByRole('button', { name: 'Pause monitoring' }).click();
   assert.deepEqual(errors, []);
-  console.log('PASS: native connection, iframe/shared process mapping, real allocation, views, navigation invalidation, pause cleanup, missing companion.');
+  console.log('PASS: native connection, iframe/shared process mapping, shared group, real allocation, process view, settings dialog, sleep action, 375px layout, navigation invalidation, pause cleanup, missing companion.');
 } finally {
   await context?.close();
   await new Promise(resolve => server.close(resolve));
