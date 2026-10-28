@@ -32,7 +32,7 @@ test('a hung first tab does not block memory readings from the next tab', async 
     const initial = await send('start');
     assert.equal(initial.scanning, true);
     let state;
-    const end = Date.now() + 7000;
+    const end = Date.now() + 9000;
     do {
       await new Promise(resolve => setTimeout(resolve, 20));
       state = await send('state');

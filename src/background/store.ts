@@ -1,4 +1,5 @@
 import type { Mapping, ProcessSample } from '../shared/model.ts';
+import type { ScanProgress } from './scan-queue.ts';
 
 export type Snapshot = { type: 'snapshot'; at: number; platform: string; warnings: string[]; processes: ProcessSample[] };
 export type HistoryPoint = { at: number; rssBytes: number; cpuPercent: number | null };
@@ -9,8 +10,8 @@ export type Store = {
   hostError: string;
   snapshot: (Snapshot & { receivedAt: number }) | null;
   mappings: Record<number, Mapping>;
-  scanning: boolean;
-  scanProgress: string;
+  scanProgress: ScanProgress | null;
+  scanningTabId: number | null;
   generation: number;
   history: HistoryPoint[];
   peak: number;
@@ -19,7 +20,7 @@ export type Store = {
 
 const initial = (): Store => ({
   running: false, hostError: 'Companion is not connected', snapshot: null, mappings: {},
-  scanning: false, scanProgress: '', generation: 0, history: [], peak: 0, settings: { thresholdMb: 1000 },
+  scanProgress: null, scanningTabId: null, generation: 0, history: [], peak: 0, settings: { thresholdMb: 1000 },
 });
 
 /** The background's single mutable state, shared by its modules. */

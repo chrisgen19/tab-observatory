@@ -3,6 +3,12 @@ import { store, type Snapshot } from './store.ts';
 
 const HOST = 'com.tab_observatory.monitor';
 let port: chrome.runtime.Port | null = null;
+let snapshotListener: () => void = () => {};
+
+/** Called after each companion snapshot is stored. */
+export function onSnapshot(listener: () => void): void {
+  snapshotListener = listener;
+}
 
 function handleSnapshot(message: Snapshot) {
   store.snapshot = { ...message, receivedAt: Date.now() };
@@ -14,6 +20,7 @@ function handleSnapshot(message: Snapshot) {
   const high = total.rssBytes > store.settings.thresholdMb * 1024 ** 2;
   chrome.action.setBadgeText({ text: high ? 'HIGH' : '' });
   chrome.action.setBadgeBackgroundColor({ color: '#b45309' });
+  snapshotListener();
 }
 
 export function connectHost(): void {

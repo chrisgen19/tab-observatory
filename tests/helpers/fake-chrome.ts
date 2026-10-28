@@ -43,7 +43,7 @@ export function installFakeChrome(options: { tabs: FakeTab[]; sendCommand: FakeS
     },
     tabs: {
       query: async () => tabs, get: async (id: number) => tabs.find(t => t.id === id),
-      update: async () => {}, create: async () => {}, onUpdated: event(), onRemoved: event(),
+      update: async () => {}, create: async () => {}, onUpdated: event(), onRemoved: event(), onReplaced: event(),
     },
     windows: { update: async () => {} },
     alarms: { create: async () => {}, clear: async () => {}, onAlarm: event() },

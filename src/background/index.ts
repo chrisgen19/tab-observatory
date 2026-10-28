@@ -1,9 +1,27 @@
 import { associate, totals } from '../shared/model.ts';
 import { store, type Settings } from './store.ts';
-import { disconnectHost, poll } from './host-connection.ts';
+import { disconnectHost, onSnapshot, poll } from './host-connection.ts';
 import { detachAll, handleDebuggerDetach, handleDebuggerEvent, rejectPendingTraces, scanTab } from './tab-scanner.ts';
+import { createScanQueue } from './scan-queue.ts';
+import { isScannable, staleTabIds } from './scan-triggers.ts';
 
+const FULL_REFRESH = 'full-refresh';
+const FULL_REFRESH_MINUTES = 5;
 let timer: ReturnType<typeof setInterval> | undefined;
+
+const queue = createScanQueue({
+  isActive: () => store.running,
+  onProgress: (progress, tabId) => { store.scanProgress = progress; store.scanningTabId = tabId; },
+  scanTab: async tabId => {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab && isScannable(tab)) await scanTab(tab, store.generation);
+  },
+});
+
+async function enqueueAll() {
+  const tabs = await chrome.tabs.query({});
+  queue.enqueue(tabs.filter(isScannable).map(tab => tab.id!));
+}
 
 chrome.action.onClicked.addListener(async () => {
   const url = chrome.runtime.getURL('dashboard.html');
@@ -17,18 +35,11 @@ chrome.action.onClicked.addListener(async () => {
 chrome.debugger.onEvent.addListener(handleDebuggerEvent);
 chrome.debugger.onDetach.addListener(handleDebuggerDetach);
 
-async function scan() {
-  if (store.scanning || !store.running) return;
-  store.scanning = true;
-  const token = store.generation;
-  try {
-    const tabs = (await chrome.tabs.query({})).filter(tab => /^https?:/.test(tab.url || '') && !tab.discarded && !tab.incognito);
-    for (let i = 0; i < tabs.length && store.running && store.generation === token; i++) {
-      store.scanProgress = `Mapping tab ${i + 1} of ${tabs.length}`;
-      await scanTab(tabs[i], token);
-    }
-  } finally { store.scanning = false; store.scanProgress = ''; }
-}
+onSnapshot(async () => {
+  if (!store.running || !store.snapshot) return;
+  const tabs = await chrome.tabs.query({});
+  queue.enqueue(staleTabIds(tabs, store.mappings, store.snapshot.processes));
+});
 
 async function start() {
   if (store.running) return;
@@ -37,15 +48,16 @@ async function start() {
   await chrome.storage.session.set({ running: true });
   poll();
   timer = setInterval(poll, 3000);
-  await chrome.alarms.create('mapping', { periodInMinutes: 0.5 });
-  void scan();
+  await chrome.alarms.create(FULL_REFRESH, { periodInMinutes: FULL_REFRESH_MINUTES });
+  await enqueueAll();
 }
 
 async function stop() {
   store.running = false;
   store.generation++;
   clearInterval(timer);
-  await chrome.alarms.clear('mapping');
+  queue.clear();
+  await chrome.alarms.clear(FULL_REFRESH);
   await chrome.storage.session.set({ running: false });
   rejectPendingTraces('Monitoring stopped');
   await detachAll();
@@ -55,12 +67,21 @@ async function stop() {
   await chrome.action.setBadgeText({ text: '' });
 }
 
-chrome.tabs.onUpdated.addListener((tabId, change) => {
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.url || change.status === 'loading' || change.discarded) delete store.mappings[tabId];
+  if (change.discarded) queue.remove(tabId);
+  const settled = change.status === 'complete' || change.discarded === false;
+  if (store.running && settled && !store.mappings[tabId] && isScannable(tab)) queue.enqueue([tabId]);
 });
-chrome.tabs.onRemoved.addListener(tabId => { delete store.mappings[tabId]; });
+chrome.tabs.onRemoved.addListener(tabId => { delete store.mappings[tabId]; queue.remove(tabId); });
+chrome.tabs.onReplaced.addListener((added, removed) => {
+  if (store.mappings[removed]) store.mappings[added] = store.mappings[removed];
+  delete store.mappings[removed];
+  queue.remove(removed);
+  if (store.running) queue.enqueue([added]);
+});
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === 'mapping' && store.running) { poll(); void scan(); }
+  if (alarm.name === FULL_REFRESH && store.running) void enqueueAll();
 });
 
 async function state() {
@@ -69,7 +90,7 @@ async function state() {
   const processes = fresh ? snapshot!.processes : [];
   const tabs = (await chrome.tabs.query({})).filter(tab => !tab.incognito);
   return {
-    running: store.running, scanning: store.scanning, scanProgress: store.scanProgress, settings: store.settings,
+    running: store.running, scanning: queue.busy(), scanProgress: store.scanProgress, settings: store.settings,
     hostError: !store.running ? '' : store.hostError || (!fresh ? 'Waiting for a fresh companion sample' : ''),
     platform: fresh ? snapshot!.platform : null,
     at: fresh ? snapshot!.at : null,
@@ -92,7 +113,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     await ready;
     if (message.command === 'start') await start();
     else if (message.command === 'stop') await stop();
-    else if (message.command === 'scan') void scan();
+    else if (message.command === 'scan') void enqueueAll();
     else if (message.command === 'settings') {
       const thresholdMb = Number(message.thresholdMb);
       if (!Number.isFinite(thresholdMb) || thresholdMb < 100 || thresholdMb > 100000) throw new Error('Threshold must be 100–100,000 MB');

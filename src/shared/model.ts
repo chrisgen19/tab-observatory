@@ -42,13 +42,13 @@ export function framesFromEvents(events: TraceEvent[]): FrameInfo[] {
 
 const sum = (values: number[]) => values.reduce((n, v) => n + v, 0);
 
-export function associate(tabs: TabLike[], mappings: Record<number, Mapping>, processes: ProcessSample[], now = Date.now()) {
+export function associate(tabs: TabLike[], mappings: Record<number, Mapping>, processes: ProcessSample[]) {
   const byPid = new Map(processes.map(p => [p.pid, p]));
   const owners = new Map<number, number[]>();
   const rows = tabs.map((tab): TabRow => {
     const id = tab.id!;
     const map = mappings[id];
-    const valid = !!map && now - map.at < 60000 && map.url === tab.url && !tab.discarded;
+    const valid = !!map && map.url === tab.url && !tab.discarded;
     // Reject recycled OS PIDs whose new process was born after this association.
     const pids = valid ? [...new Set(map.pids)].filter(pid => byPid.has(pid) &&
       (byPid.get(pid)!.createdAt == null || byPid.get(pid)!.createdAt! * 1000 <= map.at)) : [];

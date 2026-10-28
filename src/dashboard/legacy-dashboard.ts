@@ -3,7 +3,7 @@ import type { OwnedProcess, TabRow, Totals } from '../shared/model.ts';
 
 // Temporary 1:1 port of the original dashboard; replaced by the React UI.
 type State = {
-  running: boolean; scanning: boolean; scanProgress: string; settings: { thresholdMb: number };
+  running: boolean; scanning: boolean; scanProgress: { current: number; total: number } | null; settings: { thresholdMb: number };
   hostError: string; platform: string | null; at: number | null; warnings: string[];
   total: Totals; peak: number; history: { at: number; rssBytes: number }[];
   tabs: TabRow[]; processes: OwnedProcess[]; extensionId: string;
@@ -96,7 +96,7 @@ function render(next: State) {
   const hasSample = !!state.at;
   $('toggle').textContent = state.running ? 'Pause monitoring' : 'Start monitoring';
   $<HTMLButtonElement>('scan').disabled = !state.running || state.scanning;
-  $('status').textContent = state.scanning ? state.scanProgress || 'Mapping tabs…' : state.running ? hasSample ? '● Live · every 3 seconds' : 'Connecting…' : 'Paused';
+  $('status').textContent = state.scanning ? state.scanProgress ? `Mapping tab ${state.scanProgress.current} of ${state.scanProgress.total}` : 'Mapping tabs…' : state.running ? hasSample ? '● Live · every 3 seconds' : 'Connecting…' : 'Paused';
   $('status').classList.toggle('live', state.running && hasSample);
   $('setup').hidden = hasSample;
   $('error').hidden = !state.hostError;
