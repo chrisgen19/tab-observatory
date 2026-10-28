@@ -4,6 +4,7 @@ import type { RankedEntry, RankedTab } from '../../shared/ranking.ts';
 import { filterEntries, groupResultMessage, type GroupSleepResult } from '../lib/list-view.ts';
 import { TabRow } from './tab-row.tsx';
 import { SharedGroup } from './shared-group.tsx';
+import { ProcessList } from './process-list.tsx';
 import type { TabAction } from './row-actions.tsx';
 
 type Props = { state: DashboardState; send(command: CommandInput): Promise<unknown> };
@@ -27,6 +28,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function TabList({ state, send }: Props) {
   const [needle, setNeedle] = useState('');
+  const [view, setView] = useState<'tabs' | 'processes'>('tabs');
   const [showRestricted, setShowRestricted] = useState(state.settings.showRestricted);
   useEffect(() => setShowRestricted(state.settings.showRestricted), [state.settings.showRestricted]);
   const { errors, show } = useTimedErrors();
@@ -49,19 +51,46 @@ export function TabList({ state, send }: Props) {
     <TabRow key={tab.id} tab={tab} maxFrees={maxFrees} extensionId={extensionId} error={errors[tab.id]} onAction={onAction} />
   );
 
-  return (
-    <section aria-label="Tabs" className="rounded-xl border border-line bg-paper">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h2 className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold">Tabs</span>
-          <span className="text-[11px] font-normal text-muted">ranked by memory freed if closed</span>
-        </h2>
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+      <h2 className="flex items-baseline gap-2">
+        <span className="text-sm font-semibold">{view === 'tabs' ? 'Tabs' : 'Processes'}</span>
+        <span className="text-[11px] font-normal text-muted">
+          {view === 'tabs' ? 'ranked by memory freed if closed' : 'each process counted once'}
+        </span>
+      </h2>
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+        <div role="group" aria-label="View" className="flex gap-1 text-xs">
+          {(['tabs', 'processes'] as const).map(option => (
+            <button
+              key={option} type="button" aria-pressed={view === option} onClick={() => setView(option)}
+              className={`rounded-md px-2.5 py-1 font-semibold ${view === option ? 'bg-line-soft text-ink' : 'text-muted hover:text-ink'}`}
+            >
+              {option === 'tabs' ? 'Tabs' : 'Processes'}
+            </button>
+          ))}
+        </div>
         <input
           type="search" value={needle} onChange={event => setNeedle(event.target.value)}
-          placeholder="Filter by title, URL or PID" aria-label="Filter tabs"
-          className="w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs sm:w-56"
+          placeholder="Filter by title, URL or PID" aria-label={view === 'tabs' ? 'Filter tabs' : 'Filter processes'}
+          className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2.5 py-1.5 text-xs sm:w-56 sm:flex-none"
         />
       </div>
+    </div>
+  );
+
+  if (view === 'processes') {
+    return (
+      <section aria-label="Processes" className="rounded-xl border border-line bg-paper">
+        {header}
+        <div className="px-1 py-1"><ProcessList processes={state.processes} tabs={state.tabs} needle={needle} /></div>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-label="Tabs" className="rounded-xl border border-line bg-paper">
+      {header}
       {ranking.unscannedCount > 0 && (
         <p className="border-b border-line-soft px-4 py-2 text-xs text-muted">
           {plural(ranking.unscannedCount, 'tab')} not scanned yet; the ranking may change
