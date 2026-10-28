@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { barWidths, canAct, filterEntries, freesLabel, groupLabel, groupResultMessage, stateTag } from '../src/dashboard/lib/list-view.ts';
 import type { RankedEntry, RankedTab } from '../src/shared/ranking.ts';
+import { formatBytes } from '../src/shared/format.ts';
 
 const tab: RankedTab = {
   id: 1, title: 'Lofi beats stream - YouTube', url: 'https://youtube.test/watch', discarded: false, pids: [10],
@@ -52,6 +53,11 @@ test('state tags and frees labels', () => {
   assert.equal(freesLabel({ ...tab, freesBytes: 812 * 1024 ** 2 }), '812.0 MB');
   assert.equal(freesLabel({ ...tab, freesBytes: 812 * 1024 ** 2, estimated: true }), '≈ 812.0 MB');
   assert.equal(freesLabel({ ...tab, freesBytes: null }), '');
+});
+
+test('a grouped tab with no exclusive memory shows the unknown-value placeholder, not 0.0 MB', () => {
+  assert.equal(freesLabel({ ...tab, freesBytes: 0, sharedBytes: 210 }), formatBytes(null));
+  assert.equal(freesLabel({ ...tab, freesBytes: 0, sharedBytes: 0 }), '0.0 MB');
 });
 
 test('group sleep result names the tabs Chrome refused', () => {

@@ -44,8 +44,12 @@ export function stateTag(tab: RankedTab): string | null {
   }
 }
 
-export const freesLabel = (tab: RankedTab): string =>
-  tab.freesBytes == null ? '' : `${tab.estimated ? '≈ ' : ''}${formatBytes(tab.freesBytes)}`;
+/** A tab whose memory is all shared frees nothing on its own, so it shows the unknown-value placeholder. */
+export const freesLabel = (tab: RankedTab): string => {
+  if (tab.freesBytes == null) return '';
+  if (tab.freesBytes === 0 && tab.sharedBytes > 0) return formatBytes(null);
+  return `${tab.estimated ? '≈ ' : ''}${formatBytes(tab.freesBytes)}`;
+};
 
 export type GroupSleepResult = { slept: number; total: number; failures: { tabId: number; title: string; error: string }[] };
 
