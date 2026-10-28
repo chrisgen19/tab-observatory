@@ -26,9 +26,10 @@ export const ariaSort = (sort: ProcessSort, key: ProcessSort['key']): 'ascending
   sort.key !== key ? 'none' : sort.descending ? 'descending' : 'ascending';
 
 const hit = (process: OwnedProcess, tabs: TabRow[], query: string) =>
-  [process.kind, String(process.pid), ...tabs.map(tab => tab.title)].some(text => text.toLowerCase().includes(query));
+  [process.kind, String(process.pid), ...tabs.flatMap(tab => [tab.title, tab.url ?? ''])]
+    .some(text => text.toLowerCase().includes(query));
 
-/** Same filter box as the tab list: matches process kind, PID or a nested tab's title. */
+/** Same filter box as the tab list: matches process kind, PID, or a nested tab's title or URL. */
 export function filterProcessView(view: ProcessView, needle: string): ProcessView {
   const query = needle.trim().toLowerCase();
   if (!query) return view;

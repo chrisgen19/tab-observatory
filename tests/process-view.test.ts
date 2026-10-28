@@ -9,7 +9,7 @@ const row = (id: number, title: string): TabRow => ({
 });
 const proc = (pid: number, kind: string, tabIds: number[], rssBytes: number, privateBytes: number | null = rssBytes): OwnedProcess =>
   ({ pid, kind, tabIds, rssBytes, privateBytes, cpuPercent: null });
-const rows = [row(1, 'YouTube'), row(2, 'Gmail'), row(3, 'Calendar')];
+const rows = [row(1, 'YouTube'), { ...row(2, 'Gmail'), url: 'https://mail.test/' }, row(3, 'Calendar')];
 const procs = [
   proc(10, 'renderer', [1], 300), proc(30, 'renderer', [2, 3], 500),
   proc(1, 'browser', [], 200), proc(2, 'gpu-process', [], 400),
@@ -42,4 +42,10 @@ test('filter matches kind, PID or a nested tab title', () => {
   assert.deepEqual(filterProcessView(v, 'gmail').owned.map(o => o.process.pid), [30]);
   assert.deepEqual(filterProcessView(v, '10').owned.map(o => o.process.pid), [10]);
   assert.equal(filterProcessView(v, ' ').owned.length, 2);
+});
+
+test('filter matches a nested tab URL that is not in its title', () => {
+  const v = groupProcesses(procs, rows, { key: 'rssBytes', descending: true });
+  assert.deepEqual(filterProcessView(v, 'mail.test').owned.map(o => o.process.pid), [30]);
+  assert.deepEqual(filterProcessView(v, 'mail.test').unowned, []);
 });
