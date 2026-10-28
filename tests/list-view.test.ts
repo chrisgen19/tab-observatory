@@ -16,9 +16,10 @@ const entries: RankedEntry[] = [
   { kind: 'group', id: '2-3', tabs: [gmail, calendar], sharedPids: [30], sharedBytes: 210, freesBytes: 347, estimated: false, partial: false },
 ];
 
-test('filter keeps a group with only its matching members', () => {
+test('filter keeps the whole shared group when any member matches, so Sleep all targets every tab', () => {
   const out = filterEntries(entries, 'GMAIL');
-  assert.deepEqual(out.map(e => e.kind === 'group' ? e.tabs.map(t => t.id) : e.tab.id), [[2]]);
+  assert.deepEqual(out.map(e => e.kind === 'group' ? e.tabs.map(t => t.id) : e.tab.id), [[2, 3]]);
+  assert.equal(out[0], entries[1], 'the group entry is unchanged, so its totals and targets match');
 });
 
 test('filter matches URLs and PIDs; empty needle keeps everything', () => {

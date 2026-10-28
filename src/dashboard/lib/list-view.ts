@@ -4,15 +4,17 @@ import { formatBytes } from '../../shared/format.ts';
 const matches = (tab: RankedTab, needle: string) =>
   [tab.title, tab.url ?? '', ...tab.pids.map(String)].some(text => text.toLowerCase().includes(needle));
 
-/** Case-insensitive filter on title, URL and PID; a group keeps only its matching members. */
+/**
+ * Case-insensitive filter on title, URL and PID. A shared group stays whole when any member
+ * matches: its memory figures and "Sleep all" cover every tab, so hiding members would make the
+ * button act on a subset that cannot free the shared memory.
+ */
 export function filterEntries(entries: RankedEntry[], needle: string): RankedEntry[] {
   const query = needle.trim().toLowerCase();
   if (!query) return entries;
-  return entries.flatMap((entry): RankedEntry[] => {
-    if (entry.kind === 'tab') return matches(entry.tab, query) ? [entry] : [];
-    const tabs = entry.tabs.filter(tab => matches(tab, query));
-    return tabs.length ? [{ ...entry, tabs }] : [];
-  });
+  return entries.filter(entry => entry.kind === 'tab'
+    ? matches(entry.tab, query)
+    : entry.tabs.some(tab => matches(tab, query)));
 }
 
 const round = (n: number) => Math.round(n * 10) / 10;
