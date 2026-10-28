@@ -5,7 +5,7 @@ import { associate, totals, framesFromEvents } from '../src/shared/model.ts';
 const now = 1000000;
 const tabs = [1, 2].map(id => ({ id, title: `Tab ${id}`, url: `https://example.com/${id}` }));
 const maps = Object.fromEntries(tabs.map(t => [t.id, { at: now, url: t.url, pids: [42, 42], jsHeapBytes: 20 }]));
-const processes = [{ pid: 42, rssBytes: 100, privateBytes: 80, cpuPercent: 5 }];
+const processes = [{ pid: 42, kind: 'renderer', rssBytes: 100, privateBytes: 80, cpuPercent: 5 }];
 
 test('shared process is explicitly marked; browser total counts it once', () => {
   const result = associate(tabs, maps, processes, now);

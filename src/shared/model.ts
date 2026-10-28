@@ -18,6 +18,9 @@ export type TabRow = {
   favIconUrl?: string; windowId?: number; active?: boolean;
 };
 
+/** The tab fields the model and scanner read; a full chrome.tabs.Tab satisfies it. */
+export type TabLike = Partial<Pick<chrome.tabs.Tab, 'title' | 'url' | 'discarded' | 'incognito' | 'favIconUrl' | 'windowId' | 'active'>> & { id?: number };
+
 export type OwnedProcess = ProcessSample & { tabIds: number[] };
 
 export type Totals = { rssBytes: number; privateBytes: number | null; cpuPercent: number | null; processCount: number };
@@ -39,7 +42,7 @@ export function framesFromEvents(events: TraceEvent[]): FrameInfo[] {
 
 const sum = (values: number[]) => values.reduce((n, v) => n + v, 0);
 
-export function associate(tabs: chrome.tabs.Tab[], mappings: Record<number, Mapping>, processes: ProcessSample[], now = Date.now()) {
+export function associate(tabs: TabLike[], mappings: Record<number, Mapping>, processes: ProcessSample[], now = Date.now()) {
   const byPid = new Map(processes.map(p => [p.pid, p]));
   const owners = new Map<number, number[]>();
   const rows = tabs.map((tab): TabRow => {

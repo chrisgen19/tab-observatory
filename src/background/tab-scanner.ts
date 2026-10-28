@@ -1,4 +1,4 @@
-import { framesFromEvents, type FrameInfo, type TraceEvent } from '../shared/model.ts';
+import { framesFromEvents, type FrameInfo, type TabLike, type TraceEvent } from '../shared/model.ts';
 import { scanDeadline, withTimeout, type ScanDeadline } from '../shared/deadline.ts';
 import { store } from './store.ts';
 
@@ -8,7 +8,7 @@ type Context = { sessionId?: string; contextId?: number; frameId: string };
 type Probes = { contexts: Map<string, Context>; jobs: Promise<unknown>[]; command: Send };
 type PendingTrace = { events: TraceEvent[]; resolve: () => void; reject: (error: Error) => void };
 type Scan = {
-  tab: chrome.tabs.Tab; tabId: number; target: Target; token: number; deadline: ScanDeadline;
+  tab: TabLike; tabId: number; target: Target; token: number; deadline: ScanDeadline;
   send: Send; command: (method: string, params?: object) => Promise<any>;
   tracing: boolean; timeout?: ReturnType<typeof setTimeout>; acceptingAttach: boolean; jsHeapBytes: number | null;
 };
@@ -63,7 +63,7 @@ export function handleDebuggerDetach(source: chrome.debugger.Debuggee): void {
   delete store.mappings[tabId];
 }
 
-function createScan(tab: chrome.tabs.Tab, token: number): Scan {
+function createScan(tab: TabLike, token: number): Scan {
   const tabId = tab.id!;
   const target = { tabId };
   const deadline = scanDeadline(() => isCurrent(token));
@@ -174,7 +174,7 @@ async function cleanupTab(scan: Scan) {
 }
 
 /** Maps one tab's frames to OS PIDs with a short debugger session; writes store.mappings[tab.id]. */
-export async function scanTab(tab: chrome.tabs.Tab, token: number): Promise<void> {
+export async function scanTab(tab: TabLike, token: number): Promise<void> {
   const scan = createScan(tab, token);
   try {
     await attachTab(scan);
