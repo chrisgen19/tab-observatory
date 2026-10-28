@@ -1,0 +1,12 @@
+{
+  "name": "tab-observatory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/model.test.js && node tests/deadline.test.js && node tests/background.test.js",
+    "test:browser": "node tests/browser.mjs",
+    "check": "node --check extension/background.js && node --check extension/dashboard.js"
+  },
+  "devDependencies": { "playwright": "1.58.2" }
+}

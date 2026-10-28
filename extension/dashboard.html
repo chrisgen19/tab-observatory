@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tab Observatory</title><link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand"><span class="mark" aria-hidden="true">◉</span><div><span class="eyebrow">YOUR BROWSER, IN FOCUS</span><h1>Tab Observatory<span class="version">Preview 0.1</span></h1></div></div>
+      <div class="actions"><span id="status" role="status">Paused</span><button id="scan" disabled>Rescan tabs</button><button id="toggle" class="primary">Start monitoring</button></div>
+    </header>
+    <section id="setup" class="setup">
+      <div><span class="eyebrow">ONE-TIME SETUP</span><h2>Connect your local companion</h2><p>The companion reads Chrome’s operating-system memory and CPU statistics. Everything stays on this computer.</p></div>
+      <div class="install"><p>Load this extension, then run the installer from the project folder:</p><label>Windows</label><code id="windows-command"></code><label>macOS</label><code id="mac-command"></code><p>Requires Python 3.10+ for installation. <button id="copy-id" class="link">Copy extension ID</button></p></div>
+    </section>
+    <div id="error" class="notice warning" role="alert" hidden></div>
+    <div id="warnings" class="notice" hidden></div>
+    <section class="stats" aria-label="Chrome statistics">
+      <article><span class="eyebrow">CHROME RESIDENT MEMORY</span><strong id="rss">—</strong><small>Sum across unique Chrome processes</small></article>
+      <article><span class="eyebrow">PRIVATE RESIDENT MEMORY</span><strong id="private">—</strong><small>Exclusive physical pages (USS)</small></article>
+      <article><span class="eyebrow">CPU / ONE CORE</span><strong id="cpu">—</strong><small>100% equals one fully occupied core</small></article>
+      <article><span class="eyebrow">PROCESSES</span><strong id="processes">—</strong><small id="coverage">Start monitoring to collect samples</small></article>
+    </section>
+    <section class="history panel"><div class="section-heading"><div><span class="eyebrow">THE BIG PICTURE</span><h2>Memory over time</h2></div><span id="peak">Session peak —</span></div><svg id="chart" viewBox="0 0 1000 110" preserveAspectRatio="none" role="img" aria-label="Chrome resident memory history"><path id="area"/><path id="line"/></svg><div class="chart-label"><span>Session history · up to 15 minutes</span><span id="updated">Waiting for samples</span></div></section>
+    <section class="panel inventory">
+      <div class="section-heading"><div class="view-tabs" role="group" aria-label="Data view"><button id="tab-view" class="selected" aria-pressed="true">Tabs</button><button id="process-view" aria-pressed="false">Processes</button></div><input id="search" type="search" placeholder="Search titles, URLs or process IDs" aria-label="Filter rows"></div>
+      <p class="explanation" id="explanation">Memory belongs to associated processes. A shared process can appear on multiple tabs; tab rows must not be added together. Browser, GPU and worker overhead appears in Processes.</p>
+      <div class="table-scroll"><table><thead><tr><th id="name-heading">TAB / PROCESS</th><th><button data-sort="rssBytes">Resident ↓</button></th><th><button data-sort="privateBytes">Private</button></th><th><button data-sort="cpuPercent">CPU</button></th><th><button data-sort="jsHeapBytes">JS heap*</button></th><th>ATTRIBUTION</th></tr></thead><tbody id="rows"><tr><td colspan="6" class="empty">Start monitoring to see your tabs and Chrome processes.</td></tr></tbody></table></div>
+    </section>
+    <footer><p>Resident sums can count OS-shared pages more than once. USS excludes shared pages. These metrics can differ from Chrome Task Manager and macOS Memory Footprint.</p><p>* JS heap is sampled during tab scans and covers the main target’s V8 isolate; it may be shared and excludes separate worker/iframe isolates. Associations expire after 60 seconds. Scans use brief debugger sessions and may conflict with DevTools.</p><div class="footer-settings"><label for="threshold">Toolbar alert above</label><input id="threshold" type="number" min="100" max="100000" step="100" value="1000"><span>MB total resident</span><button id="save">Save</button><span id="saved" role="status"></span></div></footer>
+  </main>
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>

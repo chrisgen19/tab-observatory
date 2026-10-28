@@ -1,0 +1,9 @@
+node_modules/
+.venv/
+__pycache__/
+build/
+dist/
+*.spec
+test-results/
+.superpowers/
+.playwright-mcp/
