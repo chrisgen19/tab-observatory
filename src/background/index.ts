@@ -1,12 +1,12 @@
 import { associate, totals } from '../shared/model.ts';
-import { store, type Settings } from './store.ts';
+import { store } from './store.ts';
+import { SettingsInputSchema, parseSettings } from '../shared/settings.ts';
 import { disconnectHost, onSnapshot, poll } from './host-connection.ts';
 import { detachAll, handleDebuggerDetach, handleDebuggerEvent, rejectPendingTraces, scanTab } from './tab-scanner.ts';
 import { createScanQueue } from './scan-queue.ts';
 import { isScannable, staleTabIds } from './scan-triggers.ts';
 
 const FULL_REFRESH = 'full-refresh';
-const FULL_REFRESH_MINUTES = 5;
 let timer: ReturnType<typeof setInterval> | undefined;
 
 const queue = createScanQueue({
@@ -41,6 +41,13 @@ onSnapshot(async () => {
   queue.enqueue(staleTabIds(tabs, store.mappings, store.snapshot.processes));
 });
 
+/** Off (0 minutes) clears the alarm; otherwise every scannable tab is rescanned on that period. */
+async function scheduleFullRefresh() {
+  await chrome.alarms.clear(FULL_REFRESH);
+  const minutes = store.settings.fullRefreshMinutes;
+  if (store.running && minutes) await chrome.alarms.create(FULL_REFRESH, { periodInMinutes: minutes });
+}
+
 async function start() {
   if (store.running) return;
   store.running = true;
@@ -48,7 +55,7 @@ async function start() {
   await chrome.storage.session.set({ running: true });
   poll();
   timer = setInterval(poll, 3000);
-  await chrome.alarms.create(FULL_REFRESH, { periodInMinutes: FULL_REFRESH_MINUTES });
+  await scheduleFullRefresh();
   await enqueueAll();
 }
 
@@ -102,7 +109,7 @@ async function state() {
 
 const ready = (async () => {
   const stored = await chrome.storage.local.get('settings');
-  if (stored.settings) store.settings = stored.settings as Settings;
+  store.settings = parseSettings(stored.settings);
   const session = await chrome.storage.session.get('running');
   if (session.running) await start();
 })();
@@ -115,9 +122,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     else if (message.command === 'stop') await stop();
     else if (message.command === 'scan') void enqueueAll();
     else if (message.command === 'settings') {
-      const thresholdMb = Number(message.thresholdMb);
-      if (!Number.isFinite(thresholdMb) || thresholdMb < 100 || thresholdMb > 100000) throw new Error('Threshold must be 100–100,000 MB');
-      store.settings = { thresholdMb };
+      const result = SettingsInputSchema.shape.thresholdMb.safeParse(Number(message.thresholdMb));
+      if (!result.success) throw new Error(result.error.issues[0].message);
+      store.settings = { ...store.settings, thresholdMb: result.data };
       await chrome.storage.local.set({ settings: store.settings });
     } else if (message.command !== 'state') throw new Error('Unknown command');
     return state();
