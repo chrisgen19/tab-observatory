@@ -9,10 +9,12 @@ import { SetupPanel } from './components/setup-panel.tsx';
 import { StatusNotice } from './components/status-notice.tsx';
 import { AboutNumbers } from './components/about-numbers.tsx';
 import { TabList } from './components/tab-list.tsx';
+import { SettingsDialog } from './components/settings-dialog.tsx';
 
 export function App() {
   const { state, connected, send } = useDashboardPort();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   useTheme(state?.settings.theme);
 
   const run = async (command: CommandInput) => {
@@ -29,7 +31,7 @@ export function App() {
         companionOffline={host.kind === 'missing' || host.kind === 'dropped'}
         onToggle={() => run({ type: state?.running ? 'stop' : 'start' })}
         onRescan={() => run({ type: 'rescan' })}
-        onSettings={() => {}}
+        onSettings={() => setSettingsOpen(true)}
       />
       {state && host.kind === 'missing' && <SetupPanel extensionId={state.extensionId} />}
       <StatusNotice host={host} warnings={state?.warnings ?? []} actionError={actionError} />
@@ -40,6 +42,12 @@ export function App() {
         </section>
       )}
       <AboutNumbers />
+      {state && (
+        <SettingsDialog
+          open={settingsOpen} settings={state.settings} onClose={() => setSettingsOpen(false)}
+          onSave={settings => send({ type: 'saveSettings', settings })}
+        />
+      )}
     </main>
   );
 }
