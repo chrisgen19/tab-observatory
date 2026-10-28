@@ -13,9 +13,15 @@ export const formatAgo = (ms: number, now: number): string => {
   return `${Math.round(seconds / 60)} min ago`;
 };
 
+export const formatSpan = (ms: number): string => {
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
+};
+
 /** Change in resident memory from the first to the last point, e.g. "+410.0 MB in 15 min". */
 export const formatDelta = (points: { at: number; rssBytes: number }[]): string => {
   if (points.length < 2) return '';
-  const change = points[points.length - 1].rssBytes - points[0].rssBytes;
-  return `${change < 0 ? '-' : '+'}${formatBytes(Math.abs(change))} in 15 min`;
+  const first = points[0], last = points[points.length - 1];
+  const change = last.rssBytes - first.rssBytes;
+  return `${change < 0 ? '-' : '+'}${formatBytes(Math.abs(change))} in ${formatSpan(last.at - first.at)}`;
 };
