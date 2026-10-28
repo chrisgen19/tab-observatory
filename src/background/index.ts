@@ -1,35 +1,46 @@
-import { framesFromEvents, associate, totals } from './model.js';
-import { scanDeadline, withTimeout } from './deadline.js';
+import { framesFromEvents, associate, totals, type Mapping, type ProcessSample, type TraceEvent } from '../shared/model.ts';
+import { scanDeadline, withTimeout } from '../shared/deadline.ts';
+
+type Target = { tabId: number; sessionId?: string };
+type Context = { sessionId?: string; contextId?: number; frameId: string };
+type Probes = {
+  contexts: Map<string, Context>; jobs: Promise<unknown>[];
+  command: (destination: Target, method: string, params?: object) => Promise<any>;
+};
+type PendingTrace = { events: TraceEvent[]; resolve: () => void; reject: (error: Error) => void };
+type Snapshot = { type: 'snapshot'; at: number; platform: string; warnings: string[]; processes: ProcessSample[]; receivedAt: number };
+type HistoryPoint = { at: number; rssBytes: number; cpuPercent: number | null };
 
 const HOST = 'com.tab_observatory.monitor';
 let running = false;
-let port = null;
+let port: chrome.runtime.Port | null = null;
 let hostError = 'Companion is not connected';
-let snapshot = null;
-let mappings = {};
+let snapshot: Snapshot | null = null;
+let mappings: Record<number, Mapping> = {};
 let scanning = false;
 let scanProgress = '';
-let timer;
+let timer: ReturnType<typeof setInterval> | undefined;
 let generation = 0;
-let history = [];
+let history: HistoryPoint[] = [];
 let peak = 0;
-const pendingTraces = new Map();
-const probeTargets = new Map();
-const attached = new Set();
-const deliberateDetach = new Set();
+const pendingTraces = new Map<number, PendingTrace>();
+const probeTargets = new Map<number, Probes>();
+const attached = new Set<number>();
+const deliberateDetach = new Set<number>();
 let settings = { thresholdMb: 1000 };
 
 chrome.action.onClicked.addListener(async () => {
   const url = chrome.runtime.getURL('dashboard.html');
   const existing = (await chrome.tabs.query({})).find(tab => tab.url === url);
   if (existing) {
-    await chrome.tabs.update(existing.id, { active: true });
+    await chrome.tabs.update(existing.id!, { active: true });
     await chrome.windows.update(existing.windowId, { focused: true });
   } else await chrome.tabs.create({ url });
 });
 
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  const probes = probeTargets.get(source.tabId);
+chrome.debugger.onEvent.addListener((source: chrome.debugger.DebuggerSession, method: string, params?: any) => {
+  const tabId = source.tabId!;
+  const probes = probeTargets.get(tabId);
   if (probes && method === 'Runtime.executionContextCreated') {
     const context = params.context;
     if (context.auxData?.isDefault && context.auxData.frameId) {
@@ -39,7 +50,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     }
   }
   if (probes && method === 'Target.attachedToTarget' && params.targetInfo.type === 'iframe') {
-    const target = { tabId: source.tabId, sessionId: params.sessionId };
+    const target = { tabId, sessionId: params.sessionId };
     const job = (async () => {
       await probes.command(target, 'Runtime.enable');
       await probes.command(target, 'Target.setAutoAttach', {
@@ -49,7 +60,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     })().catch(() => {});
     probes.jobs.push(job);
   }
-  const trace = pendingTraces.get(source.tabId);
+  const trace = pendingTraces.get(tabId);
   if (!trace) return;
   if (method === 'Tracing.dataCollected') {
     // Retain only process metadata, never full browser traces or page content.
@@ -63,11 +74,12 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 });
 
 chrome.debugger.onDetach.addListener(source => {
-  attached.delete(source.tabId);
-  if (deliberateDetach.has(source.tabId)) return;
-  const trace = pendingTraces.get(source.tabId);
+  const tabId = source.tabId!;
+  attached.delete(tabId);
+  if (deliberateDetach.has(tabId)) return;
+  const trace = pendingTraces.get(tabId);
   if (trace) trace.reject(new Error('Debugger detached; retry scan when DevTools is closed'));
-  delete mappings[source.tabId];
+  delete mappings[tabId];
 });
 
 function connectHost() {
@@ -102,19 +114,20 @@ function poll() {
   if (!running) return;
   connectHost();
   try { port?.postMessage({ command: 'snapshot' }); }
-  catch (error) { hostError = error.message; }
+  catch (error) { hostError = (error as Error).message; }
 }
 
-async function traceTab(tab, token) {
-  const target = { tabId: tab.id };
+async function traceTab(tab: chrome.tabs.Tab, token: number) {
+  const tabId = tab.id!;
+  const target = { tabId };
   const deadline = scanDeadline(() => running && generation === token);
-  const send = (destination, method, params = {}) => deadline.run(
-    () => chrome.debugger.sendCommand(destination, method, params), method);
-  const command = (method, params = {}) => send(target, method, params);
+  const send = (destination: Target, method: string, params: object = {}) => deadline.run(
+    () => chrome.debugger.sendCommand(destination, method, params) as Promise<any>, method);
+  const command = (method: string, params: object = {}) => send(target, method, params);
   let tracing = false;
-  let timeout;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   let acceptingAttach = true;
-  let jsHeapBytes = null;
+  let jsHeapBytes: number | null = null;
   try {
     await deadline.run(async () => {
       await chrome.debugger.attach(target, '1.3');
@@ -122,16 +135,16 @@ async function traceTab(tab, token) {
         await withTimeout(() => chrome.debugger.detach(target), 1000, 'Detach').catch(() => {});
         return;
       }
-      attached.add(tab.id);
+      attached.add(tabId);
     }, 'Connecting to tab');
     if (!running || generation !== token) return;
     const tree = await command('Page.getFrameTree');
-    const rootFrame = tree.frameTree.frame.id;
-    const frameIds = new Set();
-    const visit = node => { frameIds.add(node.frame.id); (node.childFrames || []).forEach(visit); };
+    const rootFrame: string = tree.frameTree.frame.id;
+    const frameIds = new Set<string>();
+    const visit = (node: any) => { frameIds.add(node.frame.id); (node.childFrames || []).forEach(visit); };
     visit(tree.frameTree);
-    const probes = { contexts: new Map(), jobs: [], command: send };
-    probeTargets.set(tab.id, probes);
+    const probes: Probes = { contexts: new Map(), jobs: [], command: send };
+    probeTargets.set(tabId, probes);
     await command('Runtime.enable');
     await command('Target.setAutoAttach', {
       autoAttach: true, waitForDebuggerOnStart: false, flatten: true,
@@ -148,24 +161,24 @@ async function traceTab(tab, token) {
     for (const context of probes.contexts.values()) frameIds.add(context.frameId);
     const heap = await command('Runtime.getHeapUsage').catch(() => null);
     jsHeapBytes = heap?.usedSize ?? null;
-    let resolve, reject;
-    const complete = new Promise((yes, no) => { resolve = yes; reject = no; });
+    let resolve!: () => void, reject!: (error: Error) => void;
+    const complete = new Promise<void>((yes, no) => { resolve = yes; reject = no; });
     // Attach a handler immediately, even if start/end fails before awaiting completion.
     complete.catch(() => {});
-    const trace = { events: [], resolve, reject };
-    pendingTraces.set(tab.id, trace);
+    const trace: PendingTrace = { events: [], resolve, reject };
+    pendingTraces.set(tabId, trace);
     await command('Tracing.start', {
       categories: '-*,devtools.timeline,disabled-by-default-devtools.timeline',
       options: 'record-until-full', transferMode: 'ReportEvents',
     });
     tracing = true;
-    const markers = new Map();
-    const contexts = [...probes.contexts.values()].filter(context => frameIds.has(context.frameId));
+    const markers = new Map<string, string>();
+    const contexts: Context[] = [...probes.contexts.values()].filter(context => frameIds.has(context.frameId));
     if (!contexts.some(context => context.frameId === rootFrame)) contexts.push({ frameId: rootFrame });
     for (const context of contexts) {
       const marker = `tab-observatory-${crypto.randomUUID()}`;
       markers.set(marker, context.frameId);
-      await send({ tabId: tab.id, ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
+      await send({ tabId, ...(context.sessionId ? { sessionId: context.sessionId } : {}) },
         'Runtime.evaluate', { expression: `console.timeStamp(${JSON.stringify(marker)})`, timeout: 1500, disableBreaks: true,
           ...(context.contextId != null ? { contextId: context.contextId } : {}) }).catch(() => {});
     }
@@ -180,28 +193,28 @@ async function traceTab(tab, token) {
     }
     const root = frames.find(frame => frame.frame === rootFrame);
     if (!root?.processId) throw new Error('Chrome did not expose process mapping');
-    const current = await deadline.run(() => chrome.tabs.get(tab.id), 'Checking tab');
+    const current = await deadline.run(() => chrome.tabs.get(tabId), 'Checking tab');
     if (!running || generation !== token || current.url !== tab.url) return;
-    mappings[tab.id] = {
-      at: Date.now(), url: tab.url,
-      pids: [...new Set(frames.map(f => f.processId).filter(Number.isInteger))],
+    mappings[tabId] = {
+      at: Date.now(), url: tab.url!,
+      pids: [...new Set(frames.map(f => f.processId).filter(Number.isInteger))] as number[],
       jsHeapBytes,
       frameCount: frameIds.size, mappedFrameCount: frames.length,
     };
   } catch (error) {
-    if (generation === token) mappings[tab.id] = { at: Date.now(), url: tab.url, pids: [], jsHeapBytes, error: error.message };
+    if (generation === token) mappings[tabId] = { at: Date.now(), url: tab.url!, pids: [], jsHeapBytes, error: (error as Error).message };
   } finally {
     acceptingAttach = false;
     clearTimeout(timeout);
     if (tracing) await withTimeout(() => chrome.debugger.sendCommand(target, 'Tracing.end'), 1000, 'Ending trace').catch(() => {});
-    pendingTraces.delete(tab.id);
-    probeTargets.delete(tab.id);
+    pendingTraces.delete(tabId);
+    probeTargets.delete(tabId);
     // Always detach, including when tracing is already in use by another tool.
-    if (attached.has(tab.id)) {
-      deliberateDetach.add(tab.id);
+    if (attached.has(tabId)) {
+      deliberateDetach.add(tabId);
       await withTimeout(() => chrome.debugger.detach(target), 1000, 'Detach').catch(() => {});
-      attached.delete(tab.id);
-      deliberateDetach.delete(tab.id);
+      attached.delete(tabId);
+      deliberateDetach.delete(tabId);
     }
   }
 }
@@ -260,15 +273,15 @@ chrome.alarms.onAlarm.addListener(alarm => {
 });
 
 async function state() {
-  const fresh = snapshot && Date.now() - snapshot.receivedAt < 12000;
-  const processes = fresh ? snapshot.processes : [];
+  const fresh = !!snapshot && Date.now() - snapshot.receivedAt < 12000;
+  const processes = fresh ? snapshot!.processes : [];
   const tabs = (await chrome.tabs.query({})).filter(tab => !tab.incognito);
   return {
     running, scanning, scanProgress, settings,
     hostError: !running ? '' : hostError || (!fresh ? 'Waiting for a fresh companion sample' : ''),
-    platform: fresh ? snapshot.platform : null,
-    at: fresh ? snapshot.at : null,
-    warnings: fresh ? snapshot.warnings : [],
+    platform: fresh ? snapshot!.platform : null,
+    at: fresh ? snapshot!.at : null,
+    warnings: fresh ? snapshot!.warnings : [],
     total: totals(processes), peak, history,
     ...associate(tabs, mappings, processes), extensionId: chrome.runtime.id,
   };
@@ -276,7 +289,7 @@ async function state() {
 
 const ready = (async () => {
   const stored = await chrome.storage.local.get('settings');
-  if (stored.settings) settings = stored.settings;
+  if (stored.settings) settings = stored.settings as typeof settings;
   const session = await chrome.storage.session.get('running');
   if (session.running) await start();
 })();

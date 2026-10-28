@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Tab Observatory</title><link rel="stylesheet" href="dashboard.css">
+  <title>Tab Observatory</title>
 </head>
 <body>
   <main>
@@ -30,6 +30,6 @@
     </section>
     <footer><p>Resident sums can count OS-shared pages more than once. USS excludes shared pages. These metrics can differ from Chrome Task Manager and macOS Memory Footprint.</p><p>* JS heap is sampled during tab scans and covers the main target’s V8 isolate; it may be shared and excludes separate worker/iframe isolates. Associations expire after 60 seconds. Scans use brief debugger sessions and may conflict with DevTools.</p><div class="footer-settings"><label for="threshold">Toolbar alert above</label><input id="threshold" type="number" min="100" max="100000" step="100" value="1000"><span>MB total resident</span><button id="save">Save</button><span id="saved" role="status"></span></div></footer>
   </main>
-  <script type="module" src="dashboard.js"></script>
+  <script type="module" src="./src/dashboard/legacy-dashboard.ts"></script>
 </body>
 </html>

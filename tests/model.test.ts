@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { associate, totals, framesFromEvents } from '../extension/model.js';
+import { associate, totals, framesFromEvents } from '../src/shared/model.ts';
 
 const now = 1000000;
 const tabs = [1, 2].map(id => ({ id, title: `Tab ${id}`, url: `https://example.com/${id}` }));

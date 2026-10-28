@@ -1,16 +1,21 @@
-export function withTimeout(operation, milliseconds, label) {
-  let timer;
+export function withTimeout<T>(operation: () => T | Promise<T>, milliseconds: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     Promise.resolve().then(operation),
-    new Promise((_, reject) => {
+    new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds);
     }),
   ]).finally(() => clearTimeout(timer));
 }
 
-export function scanDeadline(isActive, budget = 12000, commandLimit = 2500) {
+export type ScanDeadline = {
+  check(): void;
+  run<T>(operation: () => T | Promise<T>, label: string, limit?: number): Promise<T>;
+};
+
+export function scanDeadline(isActive: () => boolean, budget = 12000, commandLimit = 2500): ScanDeadline {
   const expires = Date.now() + budget;
-  let failure;
+  let failure: Error | undefined;
   const check = () => {
     if (!isActive()) throw new Error('Monitoring stopped');
     if (failure) throw failure;
@@ -25,7 +30,7 @@ export function scanDeadline(isActive, budget = 12000, commandLimit = 2500) {
         check();
         return result;
       } catch (error) {
-        if (error.message.endsWith('timed out')) failure = new Error('Tab scan timed out; other tabs will continue');
+        if ((error as Error).message.endsWith('timed out')) failure = new Error('Tab scan timed out; other tabs will continue');
         throw error;
       }
     },

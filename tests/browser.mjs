@@ -2,12 +2,15 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, chmod, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Chrome loads the Vite output, so test the current source rather than a stale build.
+execFileSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' });
 const temporary = await mkdtemp(path.join(tmpdir(), 'tab-observatory-test-'));
 const server = createServer((req, res) => {
   res.setHeader('content-type', 'text/html');

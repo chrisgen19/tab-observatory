@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { scanDeadline, withTimeout } from '../extension/deadline.js';
+import { scanDeadline, withTimeout } from '../src/shared/deadline.ts';
 
 test('an unresponsive browser command expires and prevents later commands', async () => {
   const deadline = scanDeadline(() => true, 1000, 20);
