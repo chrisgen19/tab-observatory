@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isScannable, mappingAfterUpdate, markSeenPids, staleTabIds } from '../src/background/scan-triggers.ts';
-import type { Mapping, ProcessSample } from '../src/shared/model.ts';
+import { isScannable, mappingAfterUpdate, markSeenPids, rescanOnActivation, staleTabIds } from '../src/background/scan-triggers.ts';
+import { FROZEN_TAB, type Mapping, type ProcessSample } from '../src/shared/model.ts';
 
 const tab = (id: number, extra = {}) => ({ id, url: `https://example.test/${id}`, ...extra });
 const mapping = (id: number, pids: number[], extra: Partial<Mapping> = {}): Mapping =>
@@ -56,4 +56,11 @@ test('same-document URL changes keep the mapping; page loads and discards drop i
   assert.equal(mappingAfterUpdate(kept, { discarded: true }), undefined);
   assert.equal(mappingAfterUpdate(kept, { title: 'New title' }), kept);
   assert.equal(mappingAfterUpdate(undefined, { url: 'https://x.test' }), undefined);
+});
+
+test('rescanOnActivation retries only tabs that were frozen in the background', () => {
+  assert.equal(rescanOnActivation(mapping(1, [], { error: FROZEN_TAB })), true);
+  assert.equal(rescanOnActivation(mapping(1, [], { error: 'Debugger detached; retry scan when DevTools is closed' })), false);
+  assert.equal(rescanOnActivation(mapping(1, [40])), false);
+  assert.equal(rescanOnActivation(undefined), false);
 });

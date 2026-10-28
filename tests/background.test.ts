@@ -39,7 +39,7 @@ test('a hung first tab does not block memory readings from the next tab', async 
     } while (!(state?.running && !state.scanning && state.at) && Date.now() < end);
     assert.ok(states().some(s => s.running && s.scanning), 'A scanning state is pushed after start');
     assert.equal(state!.scanning, false, 'Scan must complete despite the stuck browser command');
-    assert.match(state!.tabs[0].status, /timed out/);
+    assert.equal(state!.tabs[0].status, 'Tab is frozen in the background');
     assert.equal(state!.tabs[1].rssBytes, 1024);
     assert.equal(state!.tabs[1].jsHeapBytes, 128);
     assert.equal(fake.attached.size, 0);

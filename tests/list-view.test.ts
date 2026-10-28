@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { barWidths, canAct, filterEntries, freesLabel, groupLabel, groupResultMessage, stateTag } from '../src/dashboard/lib/list-view.ts';
 import type { RankedEntry, RankedTab } from '../src/shared/ranking.ts';
 import { formatBytes } from '../src/shared/format.ts';
+import { FROZEN_TAB } from '../src/shared/model.ts';
 
 const tab: RankedTab = {
   id: 1, title: 'Lofi beats stream - YouTube', url: 'https://youtube.test/watch', discarded: false, pids: [10],
@@ -49,6 +50,7 @@ test('state tags and frees labels', () => {
   assert.equal(stateTag({ ...tab, state: 'scanning' }), 'Scanning…');
   assert.equal(stateTag({ ...tab, state: 'pending' }), 'Not scanned yet');
   assert.equal(stateTag({ ...tab, state: 'error', status: 'Tab scan timed out' }), 'Mapping failed: Tab scan timed out');
+  assert.equal(stateTag({ ...tab, state: 'error', status: FROZEN_TAB }), 'Tab is frozen in the background');
   assert.equal(stateTag({ ...tab, state: 'partial' }), 'Partial');
   assert.equal(stateTag(tab), null);
   assert.equal(freesLabel({ ...tab, freesBytes: 812 * 1024 ** 2 }), '812.0 MB');

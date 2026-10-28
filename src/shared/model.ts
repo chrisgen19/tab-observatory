@@ -10,7 +10,10 @@ export type Mapping = {
   seenPids?: number[];
 };
 
-export type TraceEvent = { name: string; pid?: number; args?: { data?: any } };
+/** Scan error for a tab whose renderer never answered Page.getFrameTree, which Chrome does for frozen background tabs. */
+export const FROZEN_TAB = 'Tab is frozen in the background';
+
+export type TraceEvent ={ name: string; pid?: number; args?: { data?: any } };
 export type FrameInfo = { frame: string; processId?: number; [key: string]: unknown };
 
 export type TabRow = {

@@ -10,12 +10,19 @@ test('an unresponsive browser command expires and prevents later commands', asyn
   assert.equal(called, false);
 });
 
-test('whole-tab budget limits multiple individually responsive commands', async () => {
-  // Margins sit well above timer granularity (about 15.6 ms on Windows), so the first command
-  // always fits the budget and only the second can exceed it.
+test('whole-tab budget limits multiple individually responsive commands', async t => {
+  // Mocked clock: real timers flaked when a loaded event loop pushed the first command past the budget.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const settle = () => new Promise(resolve => setImmediate(resolve));
   const deadline = scanDeadline(() => true, 300, 1000);
-  await deadline.run(() => new Promise(resolve => setTimeout(resolve, 100)), 'First');
-  await assert.rejects(deadline.run(() => new Promise(resolve => setTimeout(resolve, 500)), 'Second'), /timed out/);
+  const first = deadline.run(() => new Promise(resolve => setTimeout(resolve, 100)), 'First');
+  await settle();
+  t.mock.timers.tick(100);
+  await first;
+  const second = assert.rejects(deadline.run(() => new Promise(resolve => setTimeout(resolve, 500)), 'Second'), /Second timed out/);
+  await settle();
+  t.mock.timers.tick(500);
+  await second;
 });
 
 test('stopping monitoring prevents queued work; cleanup is bounded', async () => {

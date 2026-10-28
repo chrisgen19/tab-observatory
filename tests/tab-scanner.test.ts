@@ -62,6 +62,15 @@ test('a tab that navigates during the scan gets no mapping', async () => {
   assert.equal(store.mappings[1], undefined);
 });
 
+test('a frame tree request that never answers marks the tab as frozen in the background', async () => {
+  installFakeChrome({
+    tabs: [tab],
+    sendCommand: async (_target, method) => method === 'Page.getFrameTree' ? new Promise(() => {}) : {},
+  });
+  await scanTab(tab, store.generation);
+  assert.equal(store.mappings[1].error, 'Tab is frozen in the background');
+});
+
 test('an unexpected detach rejects the trace with the DevTools message', async () => {
   install([tab], { detachOnEnd: true });
   await scanTab(tab, store.generation);
