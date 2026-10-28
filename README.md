@@ -13,9 +13,11 @@ Windows can read its extension folder at:
 \\wsl.localhost\Ubuntu\home\chrisgen19\projects\tab-observatory\extension
 ```
 
-For local development, use **Load unpacked** in each Chrome profile and select
-that folder directly. No extraction or copying to a separate Windows project
-folder is needed. Disable the previously loaded Windows-folder copy while
+The extension is written in TypeScript and built by Vite into that `extension`
+folder (it is build output and not committed). Run `npm ci` once, then
+`npm run dev` while you work: it rebuilds `extension/` on every change. For local
+development, use **Load unpacked** in each Chrome profile and select that folder
+directly. No extraction or copying to a separate Windows project folder is needed. Disable the previously loaded Windows-folder copy while
 switching, and remove it after confirming the WSL-loaded copy works.
 
 Loading from a different path can change the extension ID. Register the new ID
@@ -25,9 +27,10 @@ with the existing companion using this PowerShell command:
 py -3.13 "\\wsl.localhost\Ubuntu\home\chrisgen19\projects\tab-observatory\scripts\install_host.py" --register-only NEW_EXTENSION_ID
 ```
 
-After extension code changes, click **Reload** on its `chrome://extensions` card
-in each profile, then reopen the dashboard and start monitoring. Code is not
-automatically reloaded just because a file changed. WSL must be available for
+After a rebuild, click **Reload** on its `chrome://extensions` card in each
+profile, then reopen the dashboard and start monitoring. Chrome does not reload
+the extension just because `extension/` changed, and it loads whatever was last
+built, so make sure `npm run dev` (or `npm run build`) has run first. WSL must be available for
 Chrome to read the source files. The native Windows companion stays installed
 in `%LOCALAPPDATA%\TabObservatory`; changing companion code still requires
 rebuilding that executable with the installer.
@@ -35,7 +38,9 @@ rebuilding that executable with the installer.
 ## Install on Windows or macOS
 
 1. Copy this project onto the computer you want to monitor. Install Python 3.10+
-   from python.org if it is not already available. Node is only needed for tests.
+   from python.org if it is not already available. Node 24 is needed to build the
+   extension (`npm ci && npm run build`); a packaged ZIP already contains the built
+   `extension` folder.
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**,
    and select this project's `extension` folder.
 3. Open Tab Observatory using its toolbar icon. Copy the extension ID shown in
@@ -102,6 +107,16 @@ need their own native host manifest registration.
 
 ## What the numbers mean
 
+- **Frees (tab ranking):** private memory (USS) of the processes only that tab
+  uses, which is what closing or sleeping it gives back. Tabs are ranked by it.
+  A renderer can also hold frames from incognito tabs, other profiles or frames
+  that were not mapped, so this is the best available estimate, not a guarantee.
+  When private memory is unavailable, resident memory stands in and the value is
+  marked with `≈`.
+- **Shared:** private memory of a process that several mapped tabs use. Those tabs
+  are listed together as one group, the shared memory is counted once, and it is
+  freed only when every tab in the group sleeps or closes (**Sleep both** /
+  **Sleep all N**).
 - **Resident:** RSS on macOS/Linux, working set on Windows. The total counts each
   Chrome process once, but physical pages shared across processes may still occur
   in several process working sets. This sum is not an exact unique physical total.
@@ -118,10 +133,14 @@ need their own native host manifest registration.
   view even when not attributable to a tab. Dedicated/shared workers and GPU memory
   are not allocated proportionally to tab rows.
 
-Memory/CPU collection runs about every 3 seconds. Process mappings and JS heap are
-refreshed sequentially about every 30 seconds, and mappings expire after 60 seconds.
-Navigation, tab closure, sleeping tabs and recycled PIDs invalidate associations.
-Busy browsers can have incomplete or expired associations while a scan runs.
+Memory/CPU collection runs about every 3 seconds. Tabs are mapped to processes
+one at a time when monitoring starts, when a tab opens, navigates or wakes, and
+when one of its mapped processes exits or its PID is reused. A full refresh of
+every tab also runs on a schedule (every 5 minutes by default; 2, 5 or 10 minutes
+or off in Settings). A tab whose scan fails is retried after it navigates or on the
+next full refresh, not on every sample. Mappings do not expire on a timer, so a
+frame that moves to another process without navigating stays stale until the next
+full refresh. Busy browsers can show tabs as not scanned yet while a scan runs.
 Browser commands are bounded by timeouts, with a 12-second budget per tab and
 bounded cleanup afterward. An unresponsive tab is marked with a timeout and the
 scan continues to other tabs. A JavaScript heap reading, if already collected,
@@ -134,11 +153,13 @@ macOS Activity Monitor Memory column. Windows and macOS have different accountin
 ## Privacy and permissions
 
 - No network server, cloud service, analytics, or remote debugging port is needed
-  for normal operation. Runtime data stays in memory; only the alert threshold is
-  stored persistently. The 15-minute chart is reset if the service worker restarts.
-- `tabs` reads tab titles/URLs for display; `debugger` enables short diagnostic
-  sessions; `nativeMessaging` connects to the companion; `alarms` schedules scans;
-  `storage` saves settings and the session's running flag.
+  for normal operation. Runtime data stays in memory; only settings (alert
+  threshold, theme, full refresh interval, restricted-tab visibility) are stored
+  persistently. The 15-minute chart is reset if the service worker restarts.
+- `tabs` reads tab titles/URLs for display and lets the dashboard focus, sleep
+  (discard) or close a tab you choose; `debugger` enables short diagnostic
+  sessions; `nativeMessaging` connects to the companion; `alarms` schedules the
+  full refresh; `storage` saves settings and the session's running flag.
 - Chrome's debugger permission is powerful. Monitoring is opt-in through the
   dashboard; **Pause monitoring** disconnects the companion and detaches debuggers.
 - Private/incognito tabs are excluded from scans and tab lists. The OS browser
@@ -159,10 +180,11 @@ macOS Activity Monitor Memory column. Windows and macOS have different accountin
 
 ```sh
 npm ci
+npm run dev        # rebuilds extension/ on change; npm run build for a one-off build
+npm run check      # TypeScript type-check (src and tests)
+npm test           # unit tests (node --test, TypeScript run directly by Node 24)
 python3 -m venv .venv
 .venv/bin/python -m pip install -r companion/requirements.txt
-npm test
-npm run check
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
 ```
 
@@ -175,16 +197,19 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Set `CHROME_PATH` to a compatible extension-capable Chromium executable if using
-an existing installation. The test validates actual OS memory growth, not mocked
-RAM values. A screenshot is written to `test-results/dashboard.png`.
+The browser test builds the extension first. Set `CHROME_PATH` to a compatible
+extension-capable Chromium executable if using an existing installation or if
+Playwright's expected Chromium build is not installed. The test validates actual OS memory growth, not mocked
+RAM values. Screenshots are written to `test-results/dashboard.png` and
+`test-results/dashboard-mobile.png` (375px).
 Windows/macOS end-to-end installation still requires testing on those systems.
 The included GitHub Actions workflow runs unit checks and builds a companion on
 Windows, macOS and Linux when this project is put in a repository; that workflow
-has not been run from this workspace. To create a source ZIP locally:
+has not been run from this workspace. To create a ZIP with the sources and the built extension:
 
 ```sh
-python3 scripts/package.py
+npm run build
+python3 scripts/package.py   # writes dist/tab-observatory-<version>.zip
 ```
 
 ## API references
